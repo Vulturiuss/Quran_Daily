@@ -81,7 +81,7 @@ par les politiques RLS. Ne jamais utiliser la clé `service_role` dans Expo.
 ### RevenueCat
 
 L’application reste complètement déverrouillée si aucune clé RevenueCat n’est fournie. Dès que
-RevenueCat est configuré, l’offre gratuite donne accès à Al-Fatiha et aux neuf dernières sourates,
+RevenueCat est configuré, l’offre gratuite donne accès à Al-Fatiha et aux sourates 95 à 114,
 à trois révisions quotidiennes, à Mishary et au streak. L’entitlement `premium` débloque les
 114 sourates, les récitateurs alternatifs et les statistiques détaillées.
 
@@ -89,14 +89,19 @@ Configuration recommandée dans RevenueCat:
 
 1. Créer les applications iOS et Android avec `com.qurandaily.app`.
 2. Créer l’entitlement `premium`.
-3. Créer les produits mensuel et annuel dans le Test Store, App Store Connect et Google Play.
-4. Attacher ces produits à `premium`.
-5. Créer une offering et la définir comme offering courante.
-6. Pendant le développement, ajouter la clé Test Store:
+3. Créer aussi l’entitlement `family` pour l’offre Premium Famille.
+4. Créer les produits mensuel et annuel Premium, puis les produits mensuel et annuel Famille
+   dans le Test Store, App Store Connect et Google Play.
+   Configurer un essai gratuit de 7 jours sur les abonnements stores pour que RevenueCat le
+   remonte à l’application (`introPrice` sur iOS, `freePhase` sur Google Play).
+5. Attacher les produits Premium à `premium` et les produits Famille à `family`.
+6. Créer une offering et la définir comme offering courante.
+7. Pendant le développement, ajouter la clé Test Store:
 
 ```bash
 EXPO_PUBLIC_REVENUECAT_TEST_KEY=...
 EXPO_PUBLIC_REVENUECAT_PREMIUM_ENTITLEMENT=premium
+EXPO_PUBLIC_REVENUECAT_FAMILY_ENTITLEMENT=family
 ```
 
 Les achats réels ne fonctionnent pas dans Expo Go. Créer un development build:
@@ -107,8 +112,8 @@ npx eas-cli@latest build --platform android --profile development
 npm run dev-client
 ```
 
-Sur iOS, utiliser `--platform ios` ou le profil `ios-simulator`. L’offre Famille reste désactivée
-avec `EXPO_PUBLIC_ENABLE_FAMILY_PLAN=false` tant que les profils enfants ne sont pas livrés.
+Sur iOS, utiliser `--platform ios` ou le profil `ios-simulator`. L’offre Famille partage Premium
+sur 5 comptes maximum, avec un ou plusieurs parents et des profils enfants suivis séparément.
 
 Les audios nécessitent une connexion lors de la première lecture. Pour régénérer le corpus depuis
 les API officielles Quran.com:

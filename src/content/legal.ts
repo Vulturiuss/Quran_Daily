@@ -37,9 +37,9 @@ export const privacySections: LegalSection[] = [
   {
     title: 'Espace Famille et profils enfants',
     paragraphs: [
-      'Avec Premium Famille, chaque membre utilise son propre compte et conserve une progression séparée. Un code d’invitation permet de rejoindre volontairement un espace familial.',
-      'Le parent gestionnaire peut consulter pour chaque enfant le streak, les sourates et versets mémorisés, les XP, le temps de récitation, la sourate en cours et l’historique des sessions. Il n’accède ni au mot de passe, ni aux données d’authentification, ni aux réglages privés de l’enfant.',
-      'Le parent peut retirer un enfant de la famille et l’enfant peut quitter la famille. Ces actions conservent le compte et la progression personnelle, mais retirent l’accès Premium partagé et le suivi parental.',
+      'Avec Premium Famille, chaque membre utilise son propre compte et conserve une progression séparée. Un code d’invitation permet de rejoindre volontairement un espace familial comme parent ou enfant.',
+      'Les comptes parents peuvent consulter pour chaque enfant le streak, les sourates et versets mémorisés, les XP, le temps de récitation, la sourate en cours, l’historique des sessions et l’état de la routine du jour. Ils n’accèdent ni au mot de passe, ni aux données d’authentification, ni aux réglages privés de l’enfant.',
+      'Un parent peut retirer un enfant de la famille et un membre non propriétaire peut quitter la famille. Ces actions conservent le compte et la progression personnelle, mais retirent l’accès Premium partagé et le suivi parental.',
     ],
   },
   {
@@ -113,7 +113,7 @@ export const termsSections: LegalSection[] = [
     paragraphs: [
       'Les offres payantes, leurs prix et leur durée sont affichés avant l’achat. Le paiement, le renouvellement, l’annulation et les remboursements sont gérés par Apple ou Google selon leurs propres règles.',
       'La suppression du compte Quran Daily ne résilie pas un abonnement actif. Celui-ci doit être géré dans les réglages du store concerné.',
-      'L’offre Famille permet au parent gestionnaire d’inviter jusqu’à quatre profils enfants. Chaque membre doit utiliser son propre compte. Le partage d’identifiants entre membres n’est pas nécessaire et reste déconseillé.',
+      'L’offre Famille permet de partager Premium sur cinq comptes maximum, avec un ou plusieurs parents et des comptes enfants. Chaque membre doit utiliser son propre compte. Le partage d’identifiants entre membres n’est pas nécessaire et reste déconseillé.',
     ],
   },
   {

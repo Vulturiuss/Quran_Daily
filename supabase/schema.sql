@@ -96,11 +96,29 @@ create table if not exists public.families (
   owner_id uuid not null references public.profiles(id) on delete cascade,
   invite_code text unique not null,
   max_children integer not null default 4 check (max_children between 1 and 10),
+  max_members integer not null default 5 check (max_members between 2 and 10),
   created_at timestamptz not null default now()
 );
 
 alter table public.families
   add column if not exists max_children integer not null default 4;
+
+alter table public.families
+  add column if not exists max_members integer not null default 5;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'families_max_members_check'
+  ) then
+    alter table public.families
+      add constraint families_max_members_check
+      check (max_members between 2 and 10);
+  end if;
+end
+$$;
 
 create table if not exists public.family_members (
   family_id uuid not null references public.families(id) on delete cascade,
@@ -307,11 +325,16 @@ begin
       select count(*) from public.family_members all_members
       where all_members.family_id = family.id
     ),
+    'parentCount', (
+      select count(*) from public.family_members parents
+      where parents.family_id = family.id and parents.role = 'parent'
+    ),
     'childCount', (
       select count(*) from public.family_members children
       where children.family_id = family.id and children.role = 'child'
     ),
     'maxChildren', family.max_children,
+    'maxMembers', family.max_members,
     'ownerDisplayName', coalesce(owner_snapshot.payload #>> '{profile,displayName}', owner_profile.display_name, 'Parent'),
     'active', public.family_owner_has_access(family.id)
   )
@@ -366,12 +389,13 @@ begin
 
   generated_code := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10));
 
-  insert into public.families (name, owner_id, invite_code, max_children)
+  insert into public.families (name, owner_id, invite_code, max_children, max_members)
   values (
     nullif(trim(family_name), ''),
     current_user_id,
     generated_code,
-    4
+    4,
+    5
   )
   returning id into created_family_id;
 
@@ -392,7 +416,12 @@ revoke all on function public.create_family_space(text) from public;
 revoke all on function public.create_family_space(text) from anon;
 grant execute on function public.create_family_space(text) to authenticated;
 
-create or replace function public.join_family_space(family_code text)
+drop function if exists public.join_family_space(text);
+
+create or replace function public.join_family_space(
+  family_code text,
+  member_role text default 'child'
+)
 returns jsonb
 language plpgsql
 security definer
@@ -401,7 +430,8 @@ as $$
 declare
   current_user_id uuid := auth.uid();
   target_family public.families%rowtype;
-  current_child_count integer;
+  current_member_count integer;
+  normalized_role text := lower(coalesce(member_role, 'child'));
 begin
   if current_user_id is null then
     raise exception 'Authentication required';
@@ -411,6 +441,10 @@ begin
     select 1 from public.family_members where user_id = current_user_id
   ) then
     raise exception 'Ce compte appartient déjà à une famille.';
+  end if;
+
+  if normalized_role not in ('parent', 'child') then
+    raise exception 'Rôle familial invalide.';
   end if;
 
   select *
@@ -423,20 +457,20 @@ begin
   end if;
 
   select count(*)
-  into current_child_count
+  into current_member_count
   from public.family_members
-  where family_id = target_family.id and role = 'child';
+  where family_id = target_family.id;
 
-  if current_child_count >= target_family.max_children then
-    raise exception 'Cette famille a atteint sa limite de profils enfants.';
+  if current_member_count >= target_family.max_members then
+    raise exception 'Cette famille a atteint sa limite de 5 comptes.';
   end if;
 
   insert into public.family_members (family_id, user_id, role)
-  values (target_family.id, current_user_id, 'child');
+  values (target_family.id, current_user_id, normalized_role);
 
   update public.profiles
   set family_id = target_family.id,
-      is_parent = false,
+      is_parent = normalized_role = 'parent',
       updated_at = now()
   where id = current_user_id;
 
@@ -444,9 +478,9 @@ begin
 end;
 $$;
 
-revoke all on function public.join_family_space(text) from public;
-revoke all on function public.join_family_space(text) from anon;
-grant execute on function public.join_family_space(text) to authenticated;
+revoke all on function public.join_family_space(text, text) from public;
+revoke all on function public.join_family_space(text, text) from anon;
+grant execute on function public.join_family_space(text, text) to authenticated;
 
 create or replace function public.regenerate_family_invite_code()
 returns text
@@ -461,10 +495,15 @@ begin
 
   update public.families
   set invite_code = new_code
-  where owner_id = auth.uid();
+  where id = (
+    select member.family_id
+    from public.family_members member
+    where member.user_id = auth.uid()
+      and member.role = 'parent'
+  );
 
   if not found then
-    raise exception 'Seul le parent peut renouveler le code familial.';
+    raise exception 'Seul un parent peut renouveler le code familial.';
   end if;
 
   return new_code;
@@ -475,37 +514,69 @@ revoke all on function public.regenerate_family_invite_code() from public;
 revoke all on function public.regenerate_family_invite_code() from anon;
 grant execute on function public.regenerate_family_invite_code() to authenticated;
 
-create or replace function public.remove_family_child(child_user_id uuid)
+create or replace function public.remove_family_member(member_user_id uuid)
 returns void
 language plpgsql
 security definer
 set search_path = ''
 as $$
 declare
-  owned_family_id uuid;
+  parent_family_id uuid;
+  removed_role text;
 begin
-  select id into owned_family_id
-  from public.families
-  where owner_id = auth.uid();
+  select member.family_id
+  into parent_family_id
+  from public.family_members member
+  where member.user_id = auth.uid()
+    and member.role = 'parent'
+    and public.family_owner_has_access(member.family_id);
 
-  if owned_family_id is null then
-    raise exception 'Seul le parent peut retirer un enfant.';
+  if parent_family_id is null then
+    raise exception 'Un espace Famille actif est nécessaire.';
+  end if;
+
+  if member_user_id = auth.uid() then
+    raise exception 'Utilise plutôt l’action Quitter la famille.';
+  end if;
+
+  if exists (
+    select 1
+    from public.families family
+    where family.id = parent_family_id
+      and family.owner_id = member_user_id
+  ) then
+    raise exception 'Le propriétaire de l’abonnement ne peut pas être retiré.';
   end if;
 
   delete from public.family_members
-  where family_id = owned_family_id
-    and user_id = child_user_id
-    and role = 'child';
+  where family_id = parent_family_id
+    and user_id = member_user_id
+  returning role into removed_role;
 
-  if not found then
-    raise exception 'Profil enfant introuvable.';
+  if removed_role is null then
+    raise exception 'Membre familial introuvable.';
   end if;
 
   update public.profiles
   set family_id = null,
       is_parent = false,
       updated_at = now()
-  where id = child_user_id;
+  where id = member_user_id;
+end;
+$$;
+
+revoke all on function public.remove_family_member(uuid) from public;
+revoke all on function public.remove_family_member(uuid) from anon;
+grant execute on function public.remove_family_member(uuid) to authenticated;
+
+create or replace function public.remove_family_child(child_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  perform public.remove_family_member(child_user_id);
 end;
 $$;
 
@@ -520,11 +591,18 @@ security definer
 set search_path = ''
 as $$
 begin
+  if exists (
+    select 1 from public.families family
+    where family.owner_id = auth.uid()
+  ) then
+    raise exception 'Le propriétaire doit supprimer l’espace familial pour le fermer.';
+  end if;
+
   delete from public.family_members
-  where user_id = auth.uid() and role = 'child';
+  where user_id = auth.uid();
 
   if not found then
-    raise exception 'Aucun profil enfant à retirer de la famille.';
+    raise exception 'Aucun compte à retirer de la famille.';
   end if;
 
   update public.profiles
@@ -581,11 +659,12 @@ declare
   owned_family_id uuid;
   result jsonb;
 begin
-  select family.id
+  select member.family_id
   into owned_family_id
-  from public.families family
-  where family.owner_id = auth.uid()
-    and public.family_owner_has_access(family.id);
+  from public.family_members member
+  where member.user_id = auth.uid()
+    and member.role = 'parent'
+    and public.family_owner_has_access(member.family_id);
 
   if owned_family_id is null then
     raise exception 'Un espace Famille actif est nécessaire.';
@@ -597,6 +676,7 @@ begin
         'userId', member.user_id,
         'displayName', coalesce(snapshot.payload #>> '{profile,displayName}', profile.display_name, 'Profil'),
         'role', member.role,
+        'isOwner', family.owner_id = member.user_id,
         'joinedAt', member.joined_at,
         'currentStreak', coalesce((snapshot.payload #>> '{stats,currentStreak}')::integer, 0),
         'longestStreak', coalesce((snapshot.payload #>> '{stats,longestStreak}')::integer, 0),
@@ -631,6 +711,30 @@ begin
           limit 1
         ),
         'history', coalesce(snapshot.payload -> 'history', '[]'::jsonb),
+        'todayCompleted', coalesce((
+          select count(*) > 0
+          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
+          where history_item.value ->> 'date' = current_date::text
+        ), false),
+        'todayReviews', coalesce((
+          select sum(coalesce((history_item.value ->> 'surahsReviewed')::integer, 0))
+          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
+          where history_item.value ->> 'date' = current_date::text
+        ), 0),
+        'todayVersesLearned', coalesce((
+          select sum(coalesce((history_item.value ->> 'versesLearned')::integer, 0))
+          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
+          where history_item.value ->> 'date' = current_date::text
+        ), 0),
+        'todayXPEarned', coalesce((
+          select sum(coalesce((history_item.value ->> 'xpEarned')::integer, 0))
+          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
+          where history_item.value ->> 'date' = current_date::text
+        ), 0),
+        'lastSessionDate', (
+          select max(history_item.value ->> 'date')
+          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
+        ),
         'snapshotUpdatedAt', snapshot.updated_at
       )
       order by member.role desc, member.joined_at
@@ -639,6 +743,7 @@ begin
   )
   into result
   from public.family_members member
+  join public.families family on family.id = member.family_id
   join public.profiles profile on profile.id = member.user_id
   left join public.user_state_snapshots snapshot on snapshot.user_id = member.user_id
   where member.family_id = owned_family_id;

@@ -21,7 +21,7 @@ import {
   regenerateInviteCode as regenerateInviteCodeRequest,
   removeFamilyChild as removeFamilyChildRequest,
 } from '@/services/family';
-import { FamilyContext, FamilyMemberSummary } from '@/types';
+import { FamilyContext, FamilyMemberSummary, FamilyRole } from '@/types';
 
 interface FamilyContextValue {
   loading: boolean;
@@ -31,7 +31,7 @@ interface FamilyContextValue {
   error?: string;
   refresh: () => Promise<void>;
   createFamily: (name: string) => Promise<FamilyResult<unknown>>;
-  joinFamily: (code: string) => Promise<FamilyResult<unknown>>;
+  joinFamily: (code: string, role?: FamilyRole) => Promise<FamilyResult<unknown>>;
   regenerateInviteCode: () => Promise<FamilyResult<unknown>>;
   removeChild: (userId: string) => Promise<FamilyResult<unknown>>;
   leaveFamily: () => Promise<FamilyResult<unknown>>;
@@ -116,7 +116,8 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
     [runMutation],
   );
   const joinFamily = useCallback(
-    (code: string) => runMutation(() => joinFamilyRequest(code)),
+    (code: string, role: FamilyRole = 'child') =>
+      runMutation(() => joinFamilyRequest(code, role)),
     [runMutation],
   );
   const regenerateInviteCode = useCallback(

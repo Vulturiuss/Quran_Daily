@@ -35,6 +35,7 @@ import { useCloud } from '@/providers/CloudProvider';
 import { useFamily } from '@/providers/FamilyProvider';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { colors, radius, spacing, typography } from '@/theme';
+import { FamilyRole } from '@/types';
 import { goBackOrReplace } from '@/utils/navigation';
 
 export default function FamilyScreen() {
@@ -56,7 +57,12 @@ export default function FamilyScreen() {
   } = useFamily();
   const [familyName, setFamilyName] = useState('');
   const [inviteCode, setInviteCode] = useState('');
+  const [joinRole, setJoinRole] = useState<FamilyRole>('child');
+  const parents = members.filter((member) => member.role === 'parent');
   const children = members.filter((member) => member.role === 'child');
+  const slotsRemaining = context
+    ? Math.max(0, context.maxMembers - context.memberCount)
+    : 0;
 
   async function handleCreate() {
     const result = await createFamily(familyName);
@@ -65,17 +71,17 @@ export default function FamilyScreen() {
 
   async function handleJoin() {
     if (!inviteCode.trim()) {
-      Alert.alert('Code requis', 'Saisis le code transmis par ton parent.');
+      Alert.alert('Code requis', 'Saisis le code transmis par ta famille.');
       return;
     }
-    const result = await joinFamily(inviteCode);
+    const result = await joinFamily(inviteCode, joinRole);
     if (!result.error) setInviteCode('');
   }
 
   async function shareCode() {
     if (!context?.inviteCode) return;
     await Share.share({
-      message: `Rejoins ma famille sur Quran Daily avec le code ${context.inviteCode}. Connecte-toi avec ton propre compte puis ouvre Réglages > Famille.`,
+      message: `Rejoins ma famille sur Quran Daily avec le code ${context.inviteCode}. Connecte-toi avec ton propre compte puis choisis Parent ou Enfant dans Réglages > Famille.`,
       title: 'Invitation Quran Daily Famille',
     });
   }
@@ -166,7 +172,10 @@ export default function FamilyScreen() {
               <Text style={styles.familyEyebrow}>Espace parent</Text>
               <Text style={styles.familyTitle}>{context.familyName}</Text>
               <Text style={styles.familyText}>
-                {context.childCount}/{context.maxChildren} profils enfants utilisés
+                {context.memberCount}/{context.maxMembers} comptes utilisés · {context.parentCount} parent{context.parentCount > 1 ? 's' : ''} · {context.childCount} enfant{context.childCount > 1 ? 's' : ''}
+              </Text>
+              <Text style={styles.familyText}>
+                {slotsRemaining} place{slotsRemaining > 1 ? 's' : ''} restante{slotsRemaining > 1 ? 's' : ''}
               </Text>
             </View>
             <View style={styles.activeBadge}>
@@ -194,7 +203,7 @@ export default function FamilyScreen() {
             </Card>
           ) : null}
 
-          <SectionHeader title="Inviter un enfant" />
+          <SectionHeader title="Inviter un compte" />
           <Card>
             <View style={styles.inviteHeader}>
               <View style={styles.settingIcon}>
@@ -203,7 +212,7 @@ export default function FamilyScreen() {
               <View style={styles.familyCopy}>
                 <Text style={styles.settingTitle}>Code familial</Text>
                 <Text style={styles.settingText}>
-                  L’enfant doit être connecté à son propre compte.
+                  Le membre invité choisira Parent ou Enfant depuis son propre compte.
                 </Text>
               </View>
             </View>
@@ -229,6 +238,37 @@ export default function FamilyScreen() {
               />
             </View>
           </Card>
+
+          {parents.length ? (
+            <>
+              <SectionHeader title="Comptes parents" />
+              <Card style={styles.parentsCard}>
+                {parents.map((parent, index) => (
+                  <View
+                    key={parent.userId}
+                    style={[
+                      styles.parentRow,
+                      index < parents.length - 1 && styles.parentDivider,
+                    ]}
+                  >
+                    <View style={styles.childAvatar}>
+                      <UserRound color={colors.gold} size={21} />
+                    </View>
+                    <View style={styles.familyCopy}>
+                      <Text style={styles.childName}>{parent.displayName}</Text>
+                      <Text style={styles.childMeta}>
+                        {parent.isOwner ? 'Propriétaire de l’abonnement' : 'Co-parent'}
+                      </Text>
+                    </View>
+                    <ShieldCheck
+                      color={parent.isOwner ? colors.gold : colors.success}
+                      size={18}
+                    />
+                  </View>
+                ))}
+              </Card>
+            </>
+          ) : null}
 
           <SectionHeader
             action={
@@ -267,6 +307,16 @@ export default function FamilyScreen() {
                       <Text style={styles.childName}>{child.displayName}</Text>
                       <Text style={styles.childMeta}>
                         {child.currentStreak} j de streak · {child.knownSurahs} sourates · {child.totalXP} XP
+                      </Text>
+                      <Text
+                        style={[
+                          styles.todayMeta,
+                          child.todayCompleted && styles.todayMetaDone,
+                        ]}
+                      >
+                        {child.todayCompleted
+                          ? `Aujourd’hui fait · ${child.todayReviews} révision${child.todayReviews > 1 ? 's' : ''} · ${child.todayVersesLearned} verset${child.todayVersesLearned > 1 ? 's' : ''} · +${child.todayXPEarned} XP`
+                          : 'Aujourd’hui à faire'}
                       </Text>
                     </View>
                     <ChevronRight color={colors.textFaint} size={19} />
@@ -312,7 +362,7 @@ export default function FamilyScreen() {
             <Text style={styles.familyEyebrow}>Premium Famille</Text>
             <Text style={styles.childHeroTitle}>{context.familyName}</Text>
             <Text style={styles.centerText}>
-              L’espace est géré par {context.ownerDisplayName}. Ta progression reste personnelle et ton parent voit uniquement tes indicateurs d’apprentissage.
+              L’espace est géré par {context.ownerDisplayName}. Ta progression reste personnelle et les parents voient uniquement tes indicateurs d’apprentissage.
             </Text>
           </OrnamentalCard>
           <Card style={styles.privacyCard}>
@@ -339,9 +389,9 @@ export default function FamilyScreen() {
                     <Users color={colors.gold} size={21} />
                   </View>
                   <View style={styles.familyCopy}>
-                    <Text style={styles.settingTitle}>Jusqu’à 4 enfants</Text>
+                    <Text style={styles.settingTitle}>Jusqu’à 5 comptes</Text>
                     <Text style={styles.settingText}>
-                      Chaque progression reste séparée de la tienne.
+                      Invite un autre parent ou des enfants, chacun avec sa progression.
                     </Text>
                   </View>
                 </View>
@@ -365,7 +415,7 @@ export default function FamilyScreen() {
               <Crown color={colors.gold} size={34} />
               <Text style={styles.centerTitle}>Premium Famille</Text>
               <Text style={styles.centerText}>
-                Utilise l’application comme parent et suis jusqu’à quatre enfants depuis un seul espace.
+                Partage Premium avec jusqu’à 5 comptes et suis le quotidien des enfants.
               </Text>
               <PrimaryButton
                 label="Découvrir l’offre Famille"
@@ -383,9 +433,47 @@ export default function FamilyScreen() {
               <View style={styles.familyCopy}>
                 <Text style={styles.settingTitle}>J’ai reçu un code</Text>
                 <Text style={styles.settingText}>
-                  Utilise ton compte personnel, pas celui du parent.
+                  Utilise ton compte personnel et choisis ton rôle dans la famille.
                 </Text>
               </View>
+            </View>
+            <View style={styles.rolePicker}>
+              <Pressable
+                accessibilityRole="radio"
+                accessibilityState={{ selected: joinRole === 'child' }}
+                onPress={() => setJoinRole('child')}
+                style={[
+                  styles.roleOption,
+                  joinRole === 'child' && styles.roleOptionSelected,
+                ]}
+              >
+                <UserRound
+                  color={joinRole === 'child' ? colors.gold : colors.textMuted}
+                  size={19}
+                />
+                <View style={styles.familyCopy}>
+                  <Text style={styles.roleTitle}>Enfant</Text>
+                  <Text style={styles.roleText}>Ma progression est suivie</Text>
+                </View>
+              </Pressable>
+              <Pressable
+                accessibilityRole="radio"
+                accessibilityState={{ selected: joinRole === 'parent' }}
+                onPress={() => setJoinRole('parent')}
+                style={[
+                  styles.roleOption,
+                  joinRole === 'parent' && styles.roleOptionSelected,
+                ]}
+              >
+                <ShieldCheck
+                  color={joinRole === 'parent' ? colors.gold : colors.textMuted}
+                  size={19}
+                />
+                <View style={styles.familyCopy}>
+                  <Text style={styles.roleTitle}>Parent</Text>
+                  <Text style={styles.roleText}>Je peux suivre les enfants</Text>
+                </View>
+              </Pressable>
             </View>
             <TextInput
               autoCapitalize="characters"
@@ -537,6 +625,19 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     textAlign: 'center',
   },
+  parentsCard: {
+    paddingVertical: spacing.sm,
+  },
+  parentRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    minHeight: 62,
+    paddingVertical: spacing.sm,
+  },
+  parentDivider: {
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+  },
   inlineActions: {
     flexDirection: 'row',
     gap: spacing.sm,
@@ -589,6 +690,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 3,
   },
+  todayMeta: {
+    color: colors.warning,
+    fontFamily: typography.bold,
+    fontSize: 11,
+    marginTop: 4,
+  },
+  todayMetaDone: {
+    color: colors.success,
+  },
   removeButton: {
     alignItems: 'center',
     height: 42,
@@ -628,6 +738,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
     paddingVertical: spacing.xl,
+  },
+  rolePicker: {
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  roleOption: {
+    alignItems: 'center',
+    backgroundColor: colors.backgroundDeep,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.md,
+    minHeight: 62,
+    padding: spacing.md,
+  },
+  roleOptionSelected: {
+    backgroundColor: 'rgba(212,163,115,0.11)',
+    borderColor: colors.gold,
+  },
+  roleTitle: {
+    color: colors.text,
+    fontFamily: typography.bold,
+    fontSize: 14,
+  },
+  roleText: {
+    color: colors.textMuted,
+    fontFamily: typography.regular,
+    fontSize: 11,
+    marginTop: 2,
   },
   input: {
     backgroundColor: colors.backgroundDeep,

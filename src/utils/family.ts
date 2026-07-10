@@ -4,6 +4,8 @@ import {
   FamilyRole,
   SessionRecord,
 } from '@/types';
+import { dateKey } from '@/utils/date';
+import { historySessionCount } from '@/utils/gamification';
 
 function numberValue(value: unknown) {
   const result = Number(value);
@@ -19,6 +21,13 @@ export function normalizeFamilyContext(value: unknown): FamilyContext | null {
   const input = value as Record<string, unknown>;
   if (typeof input.familyId !== 'string') return null;
 
+  const parentCount = numberValue(input.parentCount);
+  const memberCount = numberValue(input.memberCount);
+  const maxMembers = Math.max(
+    2,
+    numberValue(input.maxMembers) || numberValue(input.maxAccounts) || 5,
+  );
+
   return {
     familyId: input.familyId,
     familyName:
@@ -26,9 +35,14 @@ export function normalizeFamilyContext(value: unknown): FamilyContext | null {
     role: roleValue(input.role),
     inviteCode:
       typeof input.inviteCode === 'string' ? input.inviteCode : undefined,
-    memberCount: numberValue(input.memberCount),
+    memberCount,
+    parentCount,
     childCount: numberValue(input.childCount),
-    maxChildren: Math.max(1, numberValue(input.maxChildren) || 4),
+    maxChildren: Math.max(
+      1,
+      numberValue(input.maxChildren) || Math.max(1, maxMembers - Math.max(1, parentCount)),
+    ),
+    maxMembers,
     ownerDisplayName:
       typeof input.ownerDisplayName === 'string'
         ? input.ownerDisplayName
@@ -37,8 +51,26 @@ export function normalizeFamilyContext(value: unknown): FamilyContext | null {
   };
 }
 
+function normalizeHistory(value: unknown): SessionRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((record) => {
+    if (!record || typeof record !== 'object') return [];
+    const input = record as Partial<SessionRecord>;
+    if (typeof input.date !== 'string') return [];
+    return [input as SessionRecord];
+  });
+}
+
+function lastSessionDate(history: SessionRecord[]) {
+  return history
+    .map((record) => record.date)
+    .filter(Boolean)
+    .sort((a, b) => b.localeCompare(a))[0];
+}
+
 export function normalizeFamilyMembers(
   value: unknown,
+  today = dateKey(),
 ): FamilyMemberSummary[] {
   if (!Array.isArray(value)) return [];
 
@@ -53,11 +85,18 @@ export function normalizeFamilyMembers(
     }
 
     const learningSurah = numberValue(input.learningSurah);
+    const history = normalizeHistory(input.history);
+    const todayRecord = history.find((record) => record.date === today);
+    const explicitTodaySessionCount = numberValue(input.todaySessionCount);
+    const todaySessionCount =
+      explicitTodaySessionCount ||
+      (todayRecord ? historySessionCount(todayRecord) : 0);
     return [
       {
         userId: input.userId,
         displayName: input.displayName,
         role: roleValue(input.role),
+        isOwner: input.isOwner === true,
         joinedAt:
           typeof input.joinedAt === 'string'
             ? input.joinedAt
@@ -72,9 +111,24 @@ export function normalizeFamilyMembers(
         learningSurah: learningSurah > 0 ? learningSurah : undefined,
         learningVersesLearned: numberValue(input.learningVersesLearned),
         learningTotalVerses: numberValue(input.learningTotalVerses),
-        history: Array.isArray(input.history)
-          ? (input.history as SessionRecord[])
-          : [],
+        history,
+        todayCompleted:
+          input.todayCompleted === true ||
+          todaySessionCount > 0 ||
+          Boolean(todayRecord),
+        todayReviews:
+          numberValue(input.todayReviews) ||
+          numberValue(todayRecord?.surahsReviewed),
+        todayVersesLearned:
+          numberValue(input.todayVersesLearned) ||
+          numberValue(todayRecord?.versesLearned),
+        todayXPEarned:
+          numberValue(input.todayXPEarned) ||
+          numberValue(todayRecord?.xpEarned),
+        lastSessionDate:
+          typeof input.lastSessionDate === 'string'
+            ? input.lastSessionDate
+            : lastSessionDate(history),
         snapshotUpdatedAt:
           typeof input.snapshotUpdatedAt === 'string'
             ? input.snapshotUpdatedAt

@@ -17,7 +17,14 @@ const platformKey = Platform.select({
 export const revenueCatApiKey = testKey || platformKey;
 export const isRevenueCatConfigured = Boolean(revenueCatApiKey);
 
-export const FREE_SURAH_NUMBERS = [1, 108, 112, 113, 114] as const;
+const FREE_DISCOVERY_SURAH_NUMBERS = [
+  95, 96, 97, 98, 99, 100, 101, 102, 103, 104,
+  105, 106, 107, 108, 109, 110, 111, 112, 113, 114,
+] as const;
+
+export const FREE_SURAH_NUMBERS = [1, ...FREE_DISCOVERY_SURAH_NUMBERS] as const;
+export const FREE_SURAH_COUNT = FREE_SURAH_NUMBERS.length;
+export const FREE_SURAH_LABEL = 'Al-Fatiha + sourates 95 à 114';
 
 const freeSurahs = new Set<number>(FREE_SURAH_NUMBERS);
 

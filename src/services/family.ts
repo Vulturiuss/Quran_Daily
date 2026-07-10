@@ -1,5 +1,5 @@
 import { supabase } from '@/services/supabase';
-import { FamilyContext, FamilyMemberSummary } from '@/types';
+import { FamilyContext, FamilyMemberSummary, FamilyRole } from '@/types';
 import {
   normalizeFamilyContext,
   normalizeFamilyMembers,
@@ -51,10 +51,12 @@ export async function createFamily(
 
 export async function joinFamily(
   code: string,
+  role: FamilyRole = 'child',
 ): Promise<FamilyResult<FamilyContext | null>> {
   if (!supabase) return { error: 'Supabase n’est pas configuré.' };
   const { data, error } = await supabase.rpc('join_family_space', {
     family_code: code.trim().toUpperCase(),
+    member_role: role,
   });
   return error
     ? { error: message(error) }
@@ -75,8 +77,8 @@ export async function removeFamilyChild(
   userId: string,
 ): Promise<FamilyResult> {
   if (!supabase) return { error: 'Supabase n’est pas configuré.' };
-  const { error } = await supabase.rpc('remove_family_child', {
-    child_user_id: userId,
+  const { error } = await supabase.rpc('remove_family_member', {
+    member_user_id: userId,
   });
   return error ? { error: message(error) } : {};
 }

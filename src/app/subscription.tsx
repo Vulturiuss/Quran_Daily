@@ -35,13 +35,16 @@ import { getSurah } from '@/data/surahs';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import {
   FAMILY_ENTITLEMENT_ID,
+  FREE_SURAH_COUNT,
+  FREE_SURAH_LABEL,
   isFamilyPlanEnabled,
   PREMIUM_ENTITLEMENT_ID,
 } from '@/services/subscription';
 import { colors, radius, spacing, typography } from '@/theme';
 import { goBackOrReplace } from '@/utils/navigation';
+import { getPackageFreeTrialLabel } from '@/utils/paywall';
 
-const benefits = [
+const premiumBenefits = [
   'Les 114 sourates et leur apprentissage guidé',
   'Tous les récitateurs disponibles',
   'Révisions quotidiennes illimitées',
@@ -49,9 +52,20 @@ const benefits = [
   'Aucune publicité pendant ton parcours',
 ];
 
+const familyBenefits = [
+  'Premium partagé sur 5 comptes',
+  'Un ou plusieurs comptes parents',
+  'Suivi quotidien des enfants',
+  'Progressions séparées pour chaque membre',
+  'Les 114 sourates et récitateurs Premium',
+];
+
 function packageLabel(aPackage: PurchasesPackage) {
   const identifier = `${aPackage.identifier} ${aPackage.product.identifier}`.toLowerCase();
-  if (identifier.includes('family') || identifier.includes('famille')) return 'Famille';
+  const family = identifier.includes('family') || identifier.includes('famille');
+  if (family && aPackage.packageType === PACKAGE_TYPE.ANNUAL) return 'Famille annuel';
+  if (family && aPackage.packageType === PACKAGE_TYPE.MONTHLY) return 'Famille mensuel';
+  if (family) return 'Famille';
   if (aPackage.packageType === PACKAGE_TYPE.ANNUAL) return 'Annuel';
   if (aPackage.packageType === PACKAGE_TYPE.MONTHLY) return 'Mensuel';
   if (aPackage.packageType === PACKAGE_TYPE.LIFETIME) return 'À vie';
@@ -66,7 +80,9 @@ function isFamilyPackage(aPackage: PurchasesPackage) {
 
 function packageDescription(aPackage: PurchasesPackage) {
   const label = packageLabel(aPackage);
-  if (label === 'Famille') return 'Jusqu’à 5 profils, selon l’offre configurée';
+  if (label.startsWith('Famille')) {
+    return '5 comptes, parents et enfants, avec suivi quotidien';
+  }
   if (aPackage.packageType === PACKAGE_TYPE.ANNUAL) {
     return aPackage.product.pricePerMonthString
       ? `Soit environ ${aPackage.product.pricePerMonthString} par mois`
@@ -99,9 +115,10 @@ export default function SubscriptionScreen() {
   const packages = (offering?.availablePackages ?? []).filter(
     (aPackage) => isFamilyPlanEnabled || !isFamilyPackage(aPackage),
   );
-  const monthlyPackage = packages.find(
-    (aPackage) => aPackage.packageType === PACKAGE_TYPE.MONTHLY,
-  );
+  const selectedTrialLabel = getPackageFreeTrialLabel(selected);
+  const selectedIsFamily = selected ? Boolean(isFamilyPackage(selected)) : false;
+  const activeBenefits = isFamily ? familyBenefits : premiumBenefits;
+  const displayedBenefits = selectedIsFamily ? familyBenefits : premiumBenefits;
   const activeEntitlement =
     customerInfo?.entitlements.active[FAMILY_ENTITLEMENT_ID] ??
     customerInfo?.entitlements.active[PREMIUM_ENTITLEMENT_ID];
@@ -131,9 +148,15 @@ export default function SubscriptionScreen() {
     }
     if (!selected) return;
 
+    const buyingFamily = Boolean(isFamilyPackage(selected));
     const result = await purchase(selected);
     if (result.success) {
-      Alert.alert('Premium activé', 'Toutes les fonctionnalités sont maintenant disponibles.');
+      Alert.alert(
+        buyingFamily ? 'Premium Famille activé' : 'Premium activé',
+        buyingFamily
+          ? 'Tu peux maintenant créer ton espace familial et inviter tes proches.'
+          : 'Toutes les fonctionnalités sont maintenant disponibles.',
+      );
       return;
     }
     if (result.error) Alert.alert('Achat impossible', result.error);
@@ -156,11 +179,11 @@ export default function SubscriptionScreen() {
   return (
     <AppScreen>
       <ScreenTitle
-        title="Quran Daily Premium"
+        title="Premium & Famille"
         subtitle={
           requestedSurah
             ? `Débloque ${requestedSurah.nameTranslit} et poursuis ton parcours.`
-            : 'Un parcours complet pour apprendre sans limite.'
+            : 'Un parcours complet seul, ou partagé avec ta famille.'
         }
         action={
           <IconButton
@@ -190,7 +213,7 @@ export default function SubscriptionScreen() {
           </OrnamentalCard>
 
           <View style={styles.activeBenefits}>
-            {benefits.map((benefit) => (
+            {activeBenefits.map((benefit) => (
               <View key={benefit} style={styles.benefit}>
                 <View style={styles.check}>
                   <Check color={colors.backgroundDeep} size={14} strokeWidth={3} />
@@ -215,16 +238,18 @@ export default function SubscriptionScreen() {
             <View style={styles.heroIcon}>
               <Sparkles color={colors.gold} size={31} />
             </View>
-            <Text style={styles.heroTitle}>Tout le Coran, à ton rythme</Text>
+            <Text style={styles.heroTitle}>
+              {selectedIsFamily ? 'Une famille, plusieurs parcours' : 'Tout le Coran, à ton rythme'}
+            </Text>
             <Text style={styles.heroText}>
               {requestedSurah
                 ? `${requestedSurah.nameTranslit} fait partie des 114 sourates accessibles avec Premium.`
-                : 'Débloque l’intégralité du parcours et soutiens le développement de Quran Daily.'}
+                : `Tu gardes ${FREE_SURAH_COUNT} sourates gratuites (${FREE_SURAH_LABEL}). Premium débloque le parcours complet quand tu veux aller plus loin.`}
             </Text>
           </OrnamentalCard>
 
           <View style={styles.benefits}>
-            {benefits.map((benefit) => (
+            {displayedBenefits.map((benefit) => (
               <View key={benefit} style={styles.benefit}>
                 <View style={styles.check}>
                   <Check color={colors.backgroundDeep} size={14} strokeWidth={3} />
@@ -261,18 +286,25 @@ export default function SubscriptionScreen() {
               <View style={styles.packages}>
                 {packages.map((aPackage) => {
                   const active = selected?.identifier === aPackage.identifier;
+                  const comparableMonthlyPackage = packages.find(
+                    (candidate) =>
+                      candidate.packageType === PACKAGE_TYPE.MONTHLY &&
+                      Boolean(isFamilyPackage(candidate)) ===
+                        Boolean(isFamilyPackage(aPackage)),
+                  );
                   const annualSavings =
-                    aPackage.packageType === PACKAGE_TYPE.ANNUAL && monthlyPackage
+                    aPackage.packageType === PACKAGE_TYPE.ANNUAL && comparableMonthlyPackage
                       ? Math.max(
                           0,
                           Math.round(
                             (1 -
                               aPackage.product.price /
-                                (monthlyPackage.product.price * 12)) *
+                                (comparableMonthlyPackage.product.price * 12)) *
                               100,
                           ),
                         )
                       : 0;
+                  const trialLabel = getPackageFreeTrialLabel(aPackage);
                   return (
                     <Pressable
                       accessibilityLabel={`${packageLabel(aPackage)}. ${
@@ -297,6 +329,9 @@ export default function SubscriptionScreen() {
                         <Text style={styles.packageDescription}>
                           {packageDescription(aPackage)}
                         </Text>
+                        {trialLabel ? (
+                          <Text style={styles.trialText}>{trialLabel}</Text>
+                        ) : null}
                       </View>
                       <View style={styles.packagePrice}>
                         <Text style={styles.price}>{aPackage.product.priceString}</Text>
@@ -311,7 +346,13 @@ export default function SubscriptionScreen() {
 
               <PrimaryButton
                 icon={Crown}
-                label={session ? 'Continuer' : 'Se connecter pour continuer'}
+                label={
+                  session
+                    ? selectedTrialLabel
+                      ? 'Démarrer l’essai gratuit'
+                      : 'Continuer'
+                    : 'Se connecter pour continuer'
+                }
                 loading={loading}
                 disabled={!selected}
                 onPress={() => void buy()}
@@ -482,6 +523,12 @@ const styles = StyleSheet.create({
     fontFamily: typography.regular,
     fontSize: 12,
     marginTop: 3,
+  },
+  trialText: {
+    color: colors.success,
+    fontFamily: typography.bold,
+    fontSize: 12,
+    marginTop: spacing.xs,
   },
   packagePrice: {
     alignItems: 'flex-end',

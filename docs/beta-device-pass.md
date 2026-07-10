@@ -46,7 +46,8 @@ npm run dev-client
 - Permission notifications: accepter, refuser, puis reactiver depuis reglages systeme.
 - Session quotidienne: apprentissage jusqu'a l'ecran de fin.
 - Audio: lecture, pause, repetition x3, changement de recitateur premium bloque/debloque.
-- Paywall: page premium, selection d'offre, restauration, annulation utilisateur.
+- Paywall: page premium, essai gratuit 7 jours si l'offre store le remonte, selection d'offre, restauration, annulation utilisateur.
+- Famille: achat/entitlement family, creation espace parent, invitation parent/enfant, limite 5 comptes, suivi quotidien enfant.
 - Auth: inscription, connexion, deconnexion, suppression locale.
 - Sync: terminer une session, synchroniser, reinstaller ou changer d'appareil, verifier la restauration.
 - Reset: reglages, reinitialisation, retour onboarding.

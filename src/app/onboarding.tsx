@@ -33,7 +33,7 @@ import { isFreeSurah } from '@/services/subscription';
 import { useQuranStore } from '@/store/useQuranStore';
 import { colors, radius, spacing, typography } from '@/theme';
 
-const learnableNumbers = [114, 113, 112, 108, 103, 1];
+const learnableNumbers = [108, 109, 110, 111, 107, 106, 105, 103, 1];
 const reminderTimes = ['07:00', '12:30', '20:00', '22:00'];
 const goals = [
   { minutes: 3 as const, reviews: 1, verses: 1, label: 'Doucement' },

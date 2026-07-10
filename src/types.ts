@@ -149,8 +149,10 @@ export interface FamilyContext {
   role: FamilyRole;
   inviteCode?: string;
   memberCount: number;
+  parentCount: number;
   childCount: number;
   maxChildren: number;
+  maxMembers: number;
   ownerDisplayName: string;
   active: boolean;
 }
@@ -159,6 +161,7 @@ export interface FamilyMemberSummary {
   userId: string;
   displayName: string;
   role: FamilyRole;
+  isOwner: boolean;
   joinedAt: string;
   currentStreak: number;
   longestStreak: number;
@@ -171,5 +174,10 @@ export interface FamilyMemberSummary {
   learningVersesLearned: number;
   learningTotalVerses: number;
   history: SessionRecord[];
+  todayCompleted: boolean;
+  todayReviews: number;
+  todayVersesLearned: number;
+  todayXPEarned: number;
+  lastSessionDate?: string;
   snapshotUpdatedAt?: string;
 }

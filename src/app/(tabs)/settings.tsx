@@ -329,7 +329,7 @@ export default function SettingsScreen() {
           <View style={styles.settingCopy}>
             <Text style={styles.settingTitle}>
               {familyContext?.role === 'parent'
-                ? `${familyContext.childCount} enfant${familyContext.childCount > 1 ? 's' : ''} suivi${familyContext.childCount > 1 ? 's' : ''}`
+                ? `${familyContext.memberCount}/${familyContext.maxMembers} comptes`
                 : familyContext?.role === 'child'
                   ? `Famille de ${familyContext.ownerDisplayName}`
                   : isFamily
@@ -338,10 +338,10 @@ export default function SettingsScreen() {
             </Text>
             <Text style={styles.settingText}>
               {familyContext?.role === 'parent'
-                ? 'Consulte les parcours et invite un autre enfant.'
+                ? `${familyContext.parentCount} parent${familyContext.parentCount > 1 ? 's' : ''} · ${familyContext.childCount} enfant${familyContext.childCount > 1 ? 's' : ''} suivi${familyContext.childCount > 1 ? 's' : ''}`
                 : familyContext?.role === 'child'
-                  ? 'Ton accès Premium est partagé par ton parent.'
-                  : 'Jusqu’à quatre enfants avec des progressions séparées.'}
+                  ? 'Ton accès Premium est partagé par ta famille.'
+                  : 'Jusqu’à 5 comptes avec des progressions séparées.'}
             </Text>
           </View>
           <ChevronRight color={colors.textFaint} size={20} />

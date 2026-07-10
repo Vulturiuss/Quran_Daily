@@ -108,6 +108,31 @@ export default function FamilyMemberScreen() {
         </View>
       </OrnamentalCard>
 
+      <SectionHeader title="Aujourd’hui" />
+      <Card
+        style={[
+          styles.todayCard,
+          member.todayCompleted ? styles.todayDone : styles.todayPending,
+        ]}
+      >
+        <View style={styles.todayIcon}>
+          <Clock3
+            color={member.todayCompleted ? colors.success : colors.warning}
+            size={22}
+          />
+        </View>
+        <View style={styles.heroCopy}>
+          <Text style={styles.todayTitle}>
+            {member.todayCompleted ? 'Routine terminée' : 'Routine à faire'}
+          </Text>
+          <Text style={styles.todayText}>
+            {member.todayCompleted
+              ? `${member.todayReviews} révision${member.todayReviews > 1 ? 's' : ''} · ${member.todayVersesLearned} verset${member.todayVersesLearned > 1 ? 's' : ''} · +${member.todayXPEarned} XP`
+              : 'Aucune session synchronisée aujourd’hui.'}
+          </Text>
+        </View>
+      </Card>
+
       <SectionHeader title="Parcours global" />
       <Card style={styles.globalCard}>
         <ProgressRing label="du parcours" value={member.knownSurahs / 114} />
@@ -274,6 +299,38 @@ const styles = StyleSheet.create({
     fontFamily: typography.medium,
     fontSize: 11,
     marginTop: 3,
+  },
+  todayCard: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+    padding: spacing.md,
+  },
+  todayDone: {
+    borderColor: 'rgba(129,199,132,0.28)',
+  },
+  todayPending: {
+    borderColor: 'rgba(255,183,77,0.3)',
+  },
+  todayIcon: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: radius.md,
+    height: 46,
+    justifyContent: 'center',
+    width: 46,
+  },
+  todayTitle: {
+    color: colors.text,
+    fontFamily: typography.extraBold,
+    fontSize: 16,
+  },
+  todayText: {
+    color: colors.textMuted,
+    fontFamily: typography.medium,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 2,
   },
   globalCard: {
     alignItems: 'center',
