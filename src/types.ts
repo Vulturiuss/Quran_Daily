@@ -43,6 +43,8 @@ export interface UserProfile {
   notificationTime: string;
   notificationsEnabled: boolean;
   preferredReciter: string;
+  showReviewTransliteration: boolean;
+  showReviewTranslation: boolean;
 }
 
 export interface UserStats {
@@ -50,9 +52,15 @@ export interface UserStats {
   longestStreak: number;
   totalXP: number;
   weeklyXP: number;
+  weekStart: string;
   totalSessions: number;
   perfectSessions: number;
+  consecutivePerfectSessions: number;
   totalMinutes: number;
+  freezeCount: number;
+  freezeAllowance: number;
+  freezeRefillMonth: string;
+  lastFreezeUsedAt?: string;
   badges: string[];
 }
 
@@ -64,6 +72,21 @@ export interface SessionRecord {
   surahsReviewed: number;
   versesLearned: number;
   isPerfect: boolean;
+  sessionCount?: number;
+  perfectSessionCount?: number;
+  sessions?: SessionEntry[];
+}
+
+export interface SessionEntry {
+  id: string;
+  completedAt: string;
+  durationSeconds: number;
+  xpEarned: number;
+  surahsReviewed: number;
+  versesLearned: number;
+  isPerfect: boolean;
+  sessionCount: number;
+  perfectSessionCount: number;
 }
 
 export interface ActiveSession {
@@ -76,7 +99,9 @@ export interface ActiveSession {
   verseStart: number;
   versesTarget: number;
   versesLearned: number;
-  xpEarned: number;
+  isBonus?: boolean;
+  freezeAllowance?: number;
+  completedSurah?: number;
 }
 
 export interface SessionSummary {
@@ -85,11 +110,23 @@ export interface SessionSummary {
   versesLearned: number;
   durationSeconds: number;
   isPerfect: boolean;
+  isBonus: boolean;
+  freezeUsed: boolean;
+  completedSurah?: number;
+  xpBreakdown: {
+    reviews: number;
+    verses: number;
+    surahCompletion: number;
+    dailyCompletion: number;
+    perfectSession: number;
+    streakMilestone: number;
+  };
   unlockedBadgeIds: string[];
 }
 
 export interface SyncMeta {
   dirty: boolean;
+  cloudUserId?: string;
   lastLocalChangeAt?: string;
   lastSyncedAt?: string;
 }
@@ -102,4 +139,37 @@ export interface CloudSnapshot {
   progress: Record<number, UserSurahProgress>;
   stats: UserStats;
   history: SessionRecord[];
+}
+
+export type FamilyRole = 'parent' | 'child';
+
+export interface FamilyContext {
+  familyId: string;
+  familyName: string;
+  role: FamilyRole;
+  inviteCode?: string;
+  memberCount: number;
+  childCount: number;
+  maxChildren: number;
+  ownerDisplayName: string;
+  active: boolean;
+}
+
+export interface FamilyMemberSummary {
+  userId: string;
+  displayName: string;
+  role: FamilyRole;
+  joinedAt: string;
+  currentStreak: number;
+  longestStreak: number;
+  totalXP: number;
+  totalSessions: number;
+  totalMinutes: number;
+  knownSurahs: number;
+  versesLearned: number;
+  learningSurah?: number;
+  learningVersesLearned: number;
+  learningTotalVerses: number;
+  history: SessionRecord[];
+  snapshotUpdatedAt?: string;
 }

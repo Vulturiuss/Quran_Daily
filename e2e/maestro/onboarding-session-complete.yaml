@@ -1,0 +1,45 @@
+appId: com.qurandaily.app
+---
+- clearState
+- launchApp
+- extendedWaitUntil:
+    visible: "Quran Daily"
+    timeout: 20000
+- tapOn: "Ton prénom"
+- inputText: "Beta"
+- tapOn: "Commencer"
+- assertVisible: "Que connais-tu déjà ?"
+- tapOn: "Continuer"
+- assertVisible: "Ta prochaine sourate"
+- tapOn: "Continuer"
+- assertVisible: "Ton rythme quotidien"
+- tapOn: "Continuer"
+- assertVisible: "Protège ton rendez-vous"
+- tapOn: "C’est parti"
+- tapOn:
+    text: "Autoriser"
+    optional: true
+- tapOn:
+    text: "Allow"
+    optional: true
+- extendedWaitUntil:
+    visible: "Sauvegarde ta progression"
+    timeout: 20000
+- tapOn: "Continuer sans compte"
+- tapOn:
+    text: "Continuer sans compte"
+    optional: true
+- extendedWaitUntil:
+    visible: "Assalamu alaykum,"
+    timeout: 20000
+- tapOn: "Commencer ma session"
+- extendedWaitUntil:
+    visible: "Apprentissage"
+    timeout: 20000
+- tapOn: "Tester ma mémoire"
+- tapOn: "Verset mémorisé"
+- tapOn: "Tester ma mémoire"
+- tapOn: "Je peux le réciter"
+- extendedWaitUntil:
+    visible: "Session accomplie"
+    timeout: 20000

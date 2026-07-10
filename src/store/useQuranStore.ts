@@ -15,8 +15,20 @@ import {
   UserStats,
   UserSurahProgress,
 } from '@/types';
-import { dateKey, dayDifference } from '@/utils/date';
-import { findUnlockedBadges } from '@/utils/gamification';
+import { addDays, dateKey } from '@/utils/date';
+import {
+  advanceDailyStreak,
+  calculateSessionXP,
+  createDefaultStats,
+  findUnlockedBadges,
+  isPerfectReviewSession,
+  normalizeStats,
+  reconcileMissedStreak,
+} from '@/utils/gamification';
+import {
+  appendSessionEntry,
+  normalizeSessionRecord,
+} from '@/utils/sessionHistory';
 import { calculateNextReview, isDue, sortByReviewPriority } from '@/utils/srs';
 
 const defaultProfile: UserProfile = {
@@ -27,17 +39,8 @@ const defaultProfile: UserProfile = {
   notificationTime: '20:00',
   notificationsEnabled: false,
   preferredReciter: 'mishary',
-};
-
-const defaultStats: UserStats = {
-  currentStreak: 0,
-  longestStreak: 0,
-  totalXP: 0,
-  weeklyXP: 0,
-  totalSessions: 0,
-  perfectSessions: 0,
-  totalMinutes: 0,
-  badges: [],
+  showReviewTransliteration: false,
+  showReviewTranslation: false,
 };
 
 const defaultSyncMeta: SyncMeta = {
@@ -47,8 +50,16 @@ const defaultSyncMeta: SyncMeta = {
 function changedNow(previous?: SyncMeta): SyncMeta {
   return {
     dirty: true,
+    cloudUserId: previous?.cloudUserId,
     lastLocalChangeAt: new Date().toISOString(),
     lastSyncedAt: previous?.lastSyncedAt,
+  };
+}
+
+function normalizeProfile(profile?: Partial<UserProfile>): UserProfile {
+  return {
+    ...defaultProfile,
+    ...profile,
   };
 }
 
@@ -85,11 +96,14 @@ interface OnboardingInput {
 interface SessionAccess {
   maxReviews?: number;
   allowedSurahNumbers?: readonly number[];
+  isBonus?: boolean;
+  freezeAllowance?: number;
 }
 
 export interface QuranState {
   hydrated: boolean;
   onboardingCompleted: boolean;
+  onboardingAccountPending: boolean;
   profile: UserProfile;
   progress: Record<number, UserSurahProgress>;
   stats: UserStats;
@@ -98,6 +112,8 @@ export interface QuranState {
   activeSession?: ActiveSession;
   lastSummary?: SessionSummary;
   setHydrated: (value: boolean) => void;
+  finishAccountOnboarding: () => void;
+  refreshGamification: (freezeAllowance: number) => void;
   completeOnboarding: (input: OnboardingInput) => void;
   updateProfile: (input: Partial<UserProfile>) => void;
   setLearningSurah: (surahNumber: number) => void;
@@ -107,7 +123,12 @@ export interface QuranState {
   learnCurrentVerse: () => void;
   completeDailySession: () => SessionSummary | undefined;
   clearActiveSession: () => void;
-  applyCloudSnapshot: (snapshot: CloudSnapshot, syncedAt: string) => void;
+  applyCloudSnapshot: (
+    snapshot: CloudSnapshot,
+    syncedAt: string,
+    cloudUserId: string,
+  ) => void;
+  resetForCloudUser: (cloudUserId: string) => void;
   resetApp: () => void;
 }
 
@@ -120,19 +141,43 @@ export const useQuranStore = create<QuranState>()(
     (set, get) => ({
       hydrated: false,
       onboardingCompleted: false,
+      onboardingAccountPending: false,
       profile: defaultProfile,
       progress: {},
-      stats: defaultStats,
+      stats: createDefaultStats(),
       history: [],
       syncMeta: defaultSyncMeta,
 
       setHydrated: (value) => set({ hydrated: value }),
+      finishAccountOnboarding: () => set({ onboardingAccountPending: false }),
+
+      refreshGamification: (freezeAllowance) =>
+        set((state) => {
+          const lastCompletedDate = sortedHistory(state.history)[0]?.date;
+          const nextStats = reconcileMissedStreak(
+            state.stats,
+            lastCompletedDate,
+            freezeAllowance,
+          );
+          if (JSON.stringify(nextStats) === JSON.stringify(state.stats)) return state;
+          return {
+            stats: nextStats,
+            syncMeta: changedNow(state.syncMeta),
+          };
+        }),
 
       completeOnboarding: (input) => {
         const progress: Record<number, UserSurahProgress> = {};
         const updatedAt = new Date().toISOString();
-        input.knownSurahs.forEach((number) => {
-          progress[number] = makeProgress(number, 'known', updatedAt);
+        const baseDate = new Date(updatedAt);
+        const cloudUserId = get().syncMeta.cloudUserId;
+        input.knownSurahs.forEach((number, index) => {
+          const daysUntilReview = Math.min(14, index + 1);
+          progress[number] = {
+            ...makeProgress(number, 'known', updatedAt),
+            nextReviewAt: addDays(baseDate, daysUntilReview).toISOString(),
+            reviewIntervalDays: daysUntilReview,
+          };
         });
         if (!progress[input.learningSurah]) {
           progress[input.learningSurah] = makeProgress(
@@ -144,6 +189,7 @@ export const useQuranStore = create<QuranState>()(
 
         set({
           onboardingCompleted: true,
+          onboardingAccountPending: true,
           profile: {
             ...defaultProfile,
             displayName: input.displayName.trim() || defaultProfile.displayName,
@@ -154,10 +200,11 @@ export const useQuranStore = create<QuranState>()(
             notificationsEnabled: input.notificationsEnabled,
           },
           progress,
-          stats: defaultStats,
+          stats: createDefaultStats(),
           history: [],
           syncMeta: {
             dirty: true,
+            cloudUserId,
             lastLocalChangeAt: updatedAt,
           },
           activeSession: undefined,
@@ -235,7 +282,8 @@ export const useQuranStore = create<QuranState>()(
         );
         const due = sortByReviewPriority(known.filter((item) => isDue(item)));
         const notDue = sortByReviewPriority(known.filter((item) => !isDue(item)));
-        const reviewQueue = [...due, ...notDue]
+        const reviewCandidates = access?.isBonus ? [...due, ...notDue] : due;
+        const reviewQueue = reviewCandidates
           .slice(
             0,
             Math.min(
@@ -267,7 +315,8 @@ export const useQuranStore = create<QuranState>()(
             verseStart,
             versesTarget,
             versesLearned: 0,
-            xpEarned: 0,
+            isBonus: access?.isBonus ?? false,
+            freezeAllowance: access?.freezeAllowance ?? 1,
           },
           lastSummary: undefined,
         });
@@ -294,7 +343,6 @@ export const useQuranStore = create<QuranState>()(
               ...session,
               reviewIndex: session.reviewIndex + 1,
               ratings: [...session.ratings, rating],
-              xpEarned: session.xpEarned + 10,
             },
             syncMeta: {
               dirty: true,
@@ -315,6 +363,7 @@ export const useQuranStore = create<QuranState>()(
           const current = state.progress[surahNumber] ?? makeProgress(surahNumber, 'learning');
           const versesLearned = Math.min(current.totalVerses, current.versesLearned + 1);
           const completed = versesLearned >= current.totalVerses;
+          const completedNow = completed && current.status !== 'known';
           const updatedAt = new Date().toISOString();
 
           return {
@@ -331,7 +380,7 @@ export const useQuranStore = create<QuranState>()(
             activeSession: {
               ...session,
               versesLearned: session.versesLearned + 1,
-              xpEarned: session.xpEarned + 20,
+              completedSurah: completedNow ? surahNumber : session.completedSurah,
             },
             syncMeta: {
               dirty: true,
@@ -350,55 +399,90 @@ export const useQuranStore = create<QuranState>()(
           30,
           Math.round((Date.now() - new Date(session.startedAt).getTime()) / 1000),
         );
-        const xpEarned = session.xpEarned + 50;
-        const isPerfect = session.ratings.every((rating) => rating === 'good');
+        const completedAt = new Date();
+        const isPerfect = isPerfectReviewSession(
+          session.reviewQueue.length,
+          session.ratings,
+        );
         const today = dateKey();
-        const existingToday = state.history.some((record) => record.date === today);
+        const existingRecord = state.history.find((record) => record.date === today);
+        const existingToday = Boolean(existingRecord);
+        const isBonus = session.isBonus || existingToday;
         const previous = sortedHistory(state.history).find((record) => record.date !== today);
-        const gap = previous ? dayDifference(previous.date, today) : undefined;
-        const currentStreak = existingToday
-          ? state.stats.currentStreak
-          : gap === 1
-            ? state.stats.currentStreak + 1
-            : 1;
+        const freezeAllowance = session.freezeAllowance ?? state.stats.freezeAllowance ?? 1;
+        const normalizedStats = normalizeStats(state.stats, freezeAllowance, completedAt);
+        const streakResult = isBonus
+          ? { stats: normalizedStats, freezeUsed: false }
+          : advanceDailyStreak(
+              normalizedStats,
+              previous?.date,
+              today,
+              freezeAllowance,
+              completedAt,
+            );
+        const sessionXP = calculateSessionXP({
+          reviews: session.reviewIndex,
+          verses: session.versesLearned,
+          completedSurah: Boolean(session.completedSurah),
+          isDaily: !isBonus,
+          isPerfect,
+          streak: streakResult.stats.currentStreak,
+        });
+        const xpBreakdown = sessionXP.breakdown;
+        const xpEarned = sessionXP.total;
 
         const nextStats: UserStats = {
-          ...state.stats,
-          currentStreak,
-          longestStreak: Math.max(state.stats.longestStreak, currentStreak),
-          totalXP: state.stats.totalXP + xpEarned,
-          weeklyXP: state.stats.weeklyXP + xpEarned,
-          totalSessions: state.stats.totalSessions + (existingToday ? 0 : 1),
-          perfectSessions: state.stats.perfectSessions + (!existingToday && isPerfect ? 1 : 0),
-          totalMinutes: state.stats.totalMinutes + Math.max(1, Math.round(durationSeconds / 60)),
+          ...streakResult.stats,
+          totalXP: streakResult.stats.totalXP + xpEarned,
+          weeklyXP: streakResult.stats.weeklyXP + xpEarned,
+          totalSessions: streakResult.stats.totalSessions + 1,
+          perfectSessions: streakResult.stats.perfectSessions + (isPerfect ? 1 : 0),
+          consecutivePerfectSessions: isPerfect
+            ? streakResult.stats.consecutivePerfectSessions + 1
+            : 0,
+          totalMinutes:
+            streakResult.stats.totalMinutes +
+            Math.max(1, Math.round(durationSeconds / 60)),
         };
         const knownCount = Object.values(state.progress).filter(
           (item) => item.status === 'known',
         ).length;
-        const unlockedBadgeIds = findUnlockedBadges(nextStats, knownCount);
+        const unlockedBadgeIds = findUnlockedBadges(nextStats, {
+          knownCount,
+          completedAt,
+          durationSeconds,
+        });
         nextStats.badges = [...nextStats.badges, ...unlockedBadgeIds];
 
-        const record: SessionRecord = {
-          date: today,
-          completedAt: new Date().toISOString(),
+        const record = appendSessionEntry(existingRecord, today, {
+          id: session.startedAt,
+          completedAt: completedAt.toISOString(),
           durationSeconds,
           xpEarned,
           surahsReviewed: session.reviewIndex,
           versesLearned: session.versesLearned,
           isPerfect,
-        };
+          sessionCount: 1,
+          perfectSessionCount: isPerfect ? 1 : 0,
+        });
         const summary: SessionSummary = {
           xpEarned,
           surahsReviewed: session.reviewIndex,
           versesLearned: session.versesLearned,
           durationSeconds,
           isPerfect,
+          isBonus,
+          freezeUsed: streakResult.freezeUsed,
+          completedSurah: session.completedSurah,
+          xpBreakdown,
           unlockedBadgeIds,
         };
 
         set({
           stats: nextStats,
-          history: existingToday ? state.history : [record, ...state.history],
+          history: existingToday
+            ? state.history.map((item) => (item.date === today ? record : item))
+            : [record, ...state.history],
           syncMeta: changedNow(state.syncMeta),
           activeSession: undefined,
           lastSummary: summary,
@@ -408,49 +492,65 @@ export const useQuranStore = create<QuranState>()(
 
       clearActiveSession: () => set({ activeSession: undefined }),
 
-      applyCloudSnapshot: (snapshot, syncedAt) =>
+      applyCloudSnapshot: (snapshot, syncedAt, cloudUserId) =>
         set({
           onboardingCompleted: snapshot.onboardingCompleted,
-          profile: snapshot.profile,
+          onboardingAccountPending: false,
+          profile: normalizeProfile(snapshot.profile),
           progress: snapshot.progress,
-          stats: snapshot.stats,
-          history: snapshot.history,
+          stats: normalizeStats(snapshot.stats, snapshot.stats.freezeAllowance ?? 1),
+          history: snapshot.history.map(normalizeSessionRecord),
           syncMeta: {
             dirty: false,
+            cloudUserId,
             lastLocalChangeAt: snapshot.updatedAt,
             lastSyncedAt: syncedAt,
           },
         }),
 
-      resetApp: () =>
-        set((state) => ({
+      resetForCloudUser: (cloudUserId) =>
+        set({
           onboardingCompleted: false,
+          onboardingAccountPending: false,
           profile: defaultProfile,
           progress: {},
-          stats: defaultStats,
+          stats: createDefaultStats(),
           history: [],
-          syncMeta: changedNow(state.syncMeta),
+          syncMeta: {
+            dirty: false,
+            cloudUserId,
+          },
           activeSession: undefined,
           lastSummary: undefined,
-        })),
+        }),
+
+      resetApp: () =>
+        set({
+          onboardingCompleted: false,
+          onboardingAccountPending: false,
+          profile: defaultProfile,
+          progress: {},
+          stats: createDefaultStats(),
+          history: [],
+          syncMeta: defaultSyncMeta,
+          activeSession: undefined,
+          lastSummary: undefined,
+        }),
     }),
     {
       name: 'quran-daily-state',
       storage: createJSONStorage(() => AsyncStorage),
-      version: 2,
+      version: 4,
       migrate: (persistedState, version) => {
         const state = persistedState as Partial<QuranState>;
-        if (version < 2 && state.onboardingCompleted) {
-          return {
-            ...state,
-            syncMeta: {
-              dirty: true,
-              lastLocalChangeAt: new Date().toISOString(),
-            },
-          };
-        }
+        const now = new Date();
+        const migratedHistory = (state.history ?? []).map(normalizeSessionRecord);
         return {
           ...state,
+          onboardingAccountPending: state.onboardingAccountPending ?? false,
+          profile: normalizeProfile(state.profile),
+          stats: normalizeStats(state.stats, state.stats?.freezeAllowance ?? 1, now),
+          history: migratedHistory,
           syncMeta: state.syncMeta ?? defaultSyncMeta,
         };
       },

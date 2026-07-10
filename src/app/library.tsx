@@ -17,10 +17,16 @@ type Filter = 'all' | SurahStatus;
 
 export default function LibraryScreen() {
   const progress = useQuranStore((state) => state.progress);
-  const { configured, isPremium, loading } = useSubscription();
-  const hasFullAccess = !configured || loading || isPremium;
+  const { configured, isPremium } = useSubscription();
+  const hasFullAccess = !configured || isPremium;
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  const knownCount = Object.values(progress).filter(
+    (item) => item.status === 'known',
+  ).length;
+  const learningCount = Object.values(progress).filter(
+    (item) => item.status === 'learning',
+  ).length;
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('fr');
@@ -39,8 +45,8 @@ export default function LibraryScreen() {
   return (
     <AppScreen scroll={false} contentStyle={styles.screen}>
       <ScreenTitle
-        title="Les sourates"
-        subtitle="114 étapes, à parcourir sans se presser."
+        title="Bibliothèque"
+        subtitle={`${knownCount} connues · ${learningCount} en apprentissage`}
       />
       <View style={styles.searchBox}>
         <Search color={colors.textFaint} size={19} />
@@ -58,7 +64,12 @@ export default function LibraryScreen() {
         <Pill label="Connues" onPress={() => setFilter('known')} selected={filter === 'known'} />
         <Pill label="À apprendre" onPress={() => setFilter('locked')} selected={filter === 'locked'} />
       </View>
-      <Text style={styles.resultCount}>{filtered.length} sourates</Text>
+      <View style={styles.resultRow}>
+        <Text style={styles.resultCount}>{filtered.length} sourates</Text>
+        <Text style={styles.resultHint}>
+          {filter === 'all' ? 'Choisis ton prochain pas' : 'Filtre actif'}
+        </Text>
+      </View>
       <FlatList
         contentContainerStyle={styles.list}
         data={filtered}
@@ -68,7 +79,7 @@ export default function LibraryScreen() {
           <SurahRow
             onPress={() =>
               !hasFullAccess && !isFreeSurah(item.number)
-                ? router.push('/subscription')
+                ? router.push(`/subscription?surah=${item.number}` as never)
                 : router.push(`/surah/${item.number}` as never)
             }
             premiumLocked={!hasFullAccess && !isFreeSurah(item.number)}
@@ -109,12 +120,22 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.md,
   },
+  resultRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+    marginTop: spacing.lg,
+  },
   resultCount: {
     color: colors.textMuted,
     fontFamily: typography.bold,
     fontSize: 12,
-    marginBottom: spacing.md,
-    marginTop: spacing.lg,
+  },
+  resultHint: {
+    color: colors.textFaint,
+    fontFamily: typography.medium,
+    fontSize: 11,
   },
   list: {
     paddingBottom: 120,

@@ -13,26 +13,47 @@ export function VerseCard({
   testMode: initialTestMode = false,
   showToggle = false,
   showAudio = true,
+  tone = 'default',
 }: {
   verse: Verse;
   testMode?: boolean;
   showToggle?: boolean;
   showAudio?: boolean;
+  tone?: 'default' | 'paper';
 }) {
   const [hidden, setHidden] = useState(initialTestMode);
+  const paper = tone === 'paper';
 
   return (
-    <Card style={styles.card} gradient>
+    <Card gradient={!paper} style={[styles.card, paper && styles.paperCard]}>
       <View style={styles.numberRow}>
-        <View style={styles.number}>
-          <Text style={styles.numberText}>{verse.verseNumber}</Text>
+        <View style={[styles.number, paper && styles.paperNumber]}>
+          <Text style={[styles.numberText, paper && styles.paperAccent]}>
+            {verse.verseNumber}
+          </Text>
         </View>
         <View style={styles.actions}>
           {showAudio ? <VerseAudioButton compact verse={verse} /> : null}
           {showToggle ? (
-            <Pressable onPress={() => setHidden((value) => !value)} style={styles.toggle}>
-              {hidden ? <Eye size={18} color={colors.gold} /> : <EyeOff size={18} color={colors.gold} />}
-              <Text style={styles.toggleText}>{hidden ? 'Révéler' : 'Masquer'}</Text>
+            <Pressable
+              accessibilityLabel={
+                hidden
+                  ? `Révéler le texte du verset ${verse.verseNumber}`
+                  : `Masquer le texte du verset ${verse.verseNumber}`
+              }
+              accessibilityRole="button"
+              accessibilityState={{ expanded: !hidden }}
+              onPress={() => setHidden((value) => !value)}
+              style={styles.toggle}
+            >
+              {hidden ? (
+                <Eye size={18} color={paper ? colors.goldDeep : colors.gold} />
+              ) : (
+                <EyeOff size={18} color={paper ? colors.goldDeep : colors.gold} />
+              )}
+              <Text style={[styles.toggleText, paper && styles.paperAccent]}>
+                {hidden ? 'Révéler' : 'Masquer'}
+              </Text>
             </Pressable>
           ) : null}
         </View>
@@ -40,15 +61,23 @@ export function VerseCard({
 
       {hidden ? (
         <View style={styles.hidden}>
-          <Text style={styles.hiddenSymbol}>•••</Text>
-          <Text style={styles.hiddenText}>Récite le verset de mémoire</Text>
+          <Text style={[styles.hiddenSymbol, paper && styles.paperAccent]}>•••</Text>
+          <Text style={[styles.hiddenText, paper && styles.paperMuted]}>
+            Récite le verset de mémoire
+          </Text>
         </View>
       ) : (
         <>
-          <ArabicText style={styles.arabic}>{verse.textArabic}</ArabicText>
-          <View style={styles.divider} />
-          <Text style={styles.translation}>{verse.textFr}</Text>
-          <Text style={styles.transliteration}>{verse.textTranslit}</Text>
+          <ArabicText style={[styles.arabic, paper && styles.paperText]}>
+            {verse.textArabic}
+          </ArabicText>
+          <View style={[styles.divider, paper && styles.paperDivider]} />
+          <Text style={[styles.translation, paper && styles.paperText]}>
+            {verse.textFr}
+          </Text>
+          <Text style={[styles.transliteration, paper && styles.paperMuted]}>
+            {verse.textTranslit}
+          </Text>
         </>
       )}
     </Card>
@@ -58,6 +87,10 @@ export function VerseCard({
 const styles = StyleSheet.create({
   card: {
     minHeight: 270,
+  },
+  paperCard: {
+    backgroundColor: colors.goldPale,
+    borderColor: colors.gold,
   },
   numberRow: {
     alignItems: 'center',
@@ -133,5 +166,20 @@ const styles = StyleSheet.create({
     fontFamily: typography.medium,
     fontSize: 15,
     marginTop: spacing.md,
+  },
+  paperNumber: {
+    borderColor: colors.goldDeep,
+  },
+  paperAccent: {
+    color: colors.goldDeep,
+  },
+  paperText: {
+    color: colors.backgroundDeep,
+  },
+  paperMuted: {
+    color: colors.surfaceMuted,
+  },
+  paperDivider: {
+    backgroundColor: 'rgba(9,23,16,0.18)',
   },
 });

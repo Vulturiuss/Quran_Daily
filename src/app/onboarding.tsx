@@ -24,10 +24,11 @@ import {
 
 import { AppScreen } from '@/components/AppScreen';
 import { ArabicText } from '@/components/ArabicText';
+import { OrnamentalCard } from '@/components/OrnamentalCard';
 import { Card, Eyebrow, Pill, PrimaryButton, ProgressBar } from '@/components/ui';
 import { getSurah, onboardingSurahs } from '@/data/surahs';
 import { useSubscription } from '@/providers/SubscriptionProvider';
-import { configureDailyReminder } from '@/services/notifications';
+import { enableSmartReminders } from '@/services/notifications';
 import { isFreeSurah } from '@/services/subscription';
 import { useQuranStore } from '@/store/useQuranStore';
 import { colors, radius, spacing, typography } from '@/theme';
@@ -43,8 +44,8 @@ const goals = [
 
 export default function OnboardingScreen() {
   const completeOnboarding = useQuranStore((state) => state.completeOnboarding);
-  const { configured, isPremium, loading } = useSubscription();
-  const hasFullAccess = !configured || loading || isPremium;
+  const { configured, isPremium } = useSubscription();
+  const hasFullAccess = !configured || isPremium;
   const [step, setStep] = useState(0);
   const [displayName, setDisplayName] = useState('');
   const [knownSurahs, setKnownSurahs] = useState<number[]>([1, 112, 113, 114]);
@@ -91,7 +92,11 @@ export default function OnboardingScreen() {
     setSaving(true);
     let reminderGranted = false;
     if (notificationsEnabled) {
-      reminderGranted = await configureDailyReminder(notificationTime).catch(() => false);
+      reminderGranted = await enableSmartReminders({
+        time: notificationTime,
+        currentStreak: 0,
+        completedDates: [],
+      }).catch(() => false);
     }
     completeOnboarding({
       displayName,
@@ -103,7 +108,7 @@ export default function OnboardingScreen() {
       notificationTime,
       notificationsEnabled: reminderGranted,
     });
-    router.replace('/(tabs)');
+    router.replace('/onboarding-account');
   }
 
   return (
@@ -125,7 +130,7 @@ export default function OnboardingScreen() {
         <ProgressBar value={(step + 1) / 5} height={5} />
 
         {step === 0 ? (
-          <View style={styles.heroStep}>
+          <OrnamentalCard contentStyle={styles.heroStep} style={styles.heroShell}>
             <View style={styles.logo}>
               <MoonStar color={colors.gold} size={42} strokeWidth={1.6} />
               <View style={styles.logoDot} />
@@ -148,7 +153,7 @@ export default function OnboardingScreen() {
               style={styles.input}
               value={displayName}
             />
-          </View>
+          </OrnamentalCard>
         ) : null}
 
         {step === 1 ? (
@@ -164,7 +169,7 @@ export default function OnboardingScreen() {
               <Pill label="Aucune" onPress={() => setKnownSurahs([])} />
               <Pill
                 label="Les essentielles"
-                onPress={() => setKnownSurahs([1, 112, 113, 114])}
+                onPress={() => setKnownSurahs([1, 108, 112, 113, 114])}
               />
             </View>
             <View style={styles.surahGrid}>
@@ -268,7 +273,7 @@ export default function OnboardingScreen() {
             </View>
             <Text style={styles.stepTitle}>Protège ton rendez-vous</Text>
             <Text style={styles.stepCopy}>
-              Choisis un moment calme. Le rappel est local, privé et modifiable à tout moment.
+              Choisis un moment calme. Les rappels sont locaux, privés et modifiables à tout moment.
             </Text>
             <Card style={styles.notificationCard}>
               <View style={styles.notificationRow}>
@@ -277,12 +282,14 @@ export default function OnboardingScreen() {
                 </View>
                 <View style={styles.notificationCopy}>
                   <Text style={styles.notificationTitle}>Rappel quotidien</Text>
-                  <Text style={styles.notificationText}>Une notification douce, une fois par jour.</Text>
+                  <Text style={styles.notificationText}>
+                    Un rappel doux et une alerte à 22 h si ton streak est en danger.
+                  </Text>
                 </View>
                 <Switch
                   onValueChange={setNotificationsEnabled}
                   thumbColor={notificationsEnabled ? colors.gold : colors.textFaint}
-                  trackColor={{ false: colors.surfaceElevated, true: 'rgba(212,175,55,0.35)' }}
+                  trackColor={{ false: colors.surfaceElevated, true: 'rgba(212,163,115,0.35)' }}
                   value={notificationsEnabled}
                 />
               </View>
@@ -359,6 +366,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 54,
   },
+  heroShell: {
+    marginTop: spacing.xl,
+  },
   logo: {
     alignItems: 'center',
     backgroundColor: colors.surface,
@@ -428,7 +438,7 @@ const styles = StyleSheet.create({
   },
   stepIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.12)',
+    backgroundColor: 'rgba(212,163,115,0.12)',
     borderColor: colors.border,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -469,7 +479,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   surahChoiceSelected: {
-    backgroundColor: 'rgba(212,175,55,0.1)',
+    backgroundColor: 'rgba(212,163,115,0.1)',
     borderColor: colors.gold,
   },
   check: {
@@ -520,7 +530,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   learningChoiceSelected: {
-    backgroundColor: 'rgba(212,175,55,0.12)',
+    backgroundColor: 'rgba(212,163,115,0.12)',
     borderColor: colors.gold,
   },
   learningName: {
@@ -554,7 +564,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   goalSelected: {
-    backgroundColor: 'rgba(212,175,55,0.11)',
+    backgroundColor: 'rgba(212,163,115,0.11)',
     borderColor: colors.gold,
   },
   goalMinutes: {
@@ -614,7 +624,7 @@ const styles = StyleSheet.create({
   },
   notificationIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.12)',
+    backgroundColor: 'rgba(212,163,115,0.12)',
     borderRadius: radius.md,
     height: 46,
     justifyContent: 'center',

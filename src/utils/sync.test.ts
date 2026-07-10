@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { CloudSnapshot } from '../types';
+import { createDefaultStats } from './gamification';
 import { mergeCloudSnapshots } from './sync';
 
 function snapshot(updatedAt: string): CloudSnapshot {
@@ -17,18 +18,11 @@ function snapshot(updatedAt: string): CloudSnapshot {
       notificationTime: '20:00',
       notificationsEnabled: false,
       preferredReciter: 'mishary',
+      showReviewTransliteration: false,
+      showReviewTranslation: false,
     },
     progress: {},
-    stats: {
-      currentStreak: 0,
-      longestStreak: 0,
-      totalXP: 0,
-      weeklyXP: 0,
-      totalSessions: 0,
-      perfectSessions: 0,
-      totalMinutes: 0,
-      badges: [],
-    },
+    stats: createDefaultStats(new Date('2026-06-14T12:00:00')),
     history: [],
   };
 }
@@ -62,7 +56,7 @@ test('merge keeps the newest progress item and profile', () => {
   assert.equal(merged.progress[112].reviewCount, 3);
 });
 
-test('merge unions session history and badges without double counting dates', () => {
+test('merge unions session history, concurrent sessions and badges', () => {
   const local = snapshot('2026-06-14T12:00:00.000Z');
   const remote = snapshot('2026-06-14T11:00:00.000Z');
   local.stats.badges = ['first-session'];
@@ -94,12 +88,13 @@ test('merge unions session history and badges without double counting dates', ()
   const merged = mergeCloudSnapshots(local, remote);
 
   assert.equal(merged.history.length, 2);
-  assert.equal(merged.history[0].xpEarned, 70);
+  assert.equal(merged.history[0].xpEarned, 120);
+  assert.equal(merged.history[0].sessionCount, 2);
   assert.deepEqual(new Set(merged.stats.badges), new Set(['first-session', 'streak-7']));
-  assert.equal(merged.stats.totalSessions, 2);
+  assert.equal(merged.stats.totalSessions, 3);
 });
 
-test('a newer local reset clears the remote snapshot', () => {
+test('an incomplete local reset cannot erase an onboarded remote snapshot', () => {
   const local = snapshot('2026-06-14T13:00:00.000Z');
   const remote = snapshot('2026-06-14T12:00:00.000Z');
   local.onboardingCompleted = false;
@@ -117,6 +112,6 @@ test('a newer local reset clears the remote snapshot', () => {
 
   const merged = mergeCloudSnapshots(local, remote);
 
-  assert.equal(merged.onboardingCompleted, false);
-  assert.deepEqual(merged.progress, {});
+  assert.equal(merged.onboardingCompleted, true);
+  assert.equal(merged.progress[112].status, 'known');
 });

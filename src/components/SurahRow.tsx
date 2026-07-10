@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Check, ChevronRight, Crown, LockKeyhole, Sparkles } from 'lucide-react-native';
+import { BookOpen, Check, ChevronRight, Crown, Sparkles } from 'lucide-react-native';
 
 import { colors, radius, spacing, typography } from '@/theme';
 import { Surah, UserSurahProgress } from '@/types';
@@ -24,7 +24,7 @@ export function SurahRow({
       ? Check
       : status === 'learning'
         ? Sparkles
-        : LockKeyhole;
+        : BookOpen;
   const statusColor =
     premiumLocked
       ? colors.gold
@@ -36,6 +36,23 @@ export function SurahRow({
 
   return (
     <Pressable
+      accessibilityHint={
+        premiumLocked
+          ? 'Ouvre la page présentant l’abonnement Premium.'
+          : 'Ouvre le détail de la sourate.'
+      }
+      accessibilityLabel={`${surah.nameTranslit}, ${surah.nameFr}, ${
+        surah.totalVerses
+      } versets. ${
+        premiumLocked
+          ? 'Réservée à Premium'
+          : status === 'known'
+            ? 'Connue'
+            : status === 'learning'
+              ? `${progress?.versesLearned ?? 0} versets mémorisés`
+              : 'À apprendre'
+      }`}
+      accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
@@ -68,6 +85,19 @@ export function SurahRow({
       </View>
       <View style={styles.status}>
         <StatusIcon size={17} color={statusColor} />
+        <Text style={[styles.statusText, { color: statusColor }]}>
+          {premiumLocked
+            ? 'Premium'
+            : status === 'known'
+              ? 'Connue'
+              : status === 'learning'
+                ? `${Math.round(
+                    ((progress?.versesLearned ?? 0) /
+                      Math.max(1, progress?.totalVerses ?? 1)) *
+                      100,
+                  )}%`
+                : ''}
+        </Text>
         <ChevronRight size={18} color={colors.textFaint} />
       </View>
     </Pressable>
@@ -83,11 +113,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     marginBottom: spacing.sm,
-    minHeight: 84,
+    minHeight: 80,
     padding: spacing.md,
   },
   selected: {
-    backgroundColor: 'rgba(212,175,55,0.13)',
+    backgroundColor: 'rgba(212,163,115,0.13)',
     borderColor: colors.gold,
   },
   pressed: {
@@ -96,18 +126,18 @@ const styles = StyleSheet.create({
   numberBadge: {
     alignItems: 'center',
     backgroundColor: colors.surfaceElevated,
-    borderRadius: radius.md,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    borderWidth: 1,
     height: 46,
     justifyContent: 'center',
     marginRight: spacing.md,
-    transform: [{ rotate: '45deg' }],
     width: 46,
   },
   number: {
     color: colors.gold,
     fontFamily: typography.bold,
     fontSize: 13,
-    transform: [{ rotate: '-45deg' }],
   },
   copy: {
     flex: 1,
@@ -149,5 +179,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.xs,
     marginLeft: spacing.sm,
+  },
+  statusText: {
+    fontFamily: typography.bold,
+    fontSize: 10,
   },
 });

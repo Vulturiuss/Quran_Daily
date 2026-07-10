@@ -1,6 +1,7 @@
-import { ComponentType, ReactNode } from 'react';
+import { ComponentType, ReactNode, useEffect, useRef } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Pressable,
   StyleProp,
   StyleSheet,
@@ -11,7 +12,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { LucideProps } from 'lucide-react-native';
 
-import { colors, radius, spacing, typography } from '@/theme';
+import { colors, motion, radius, spacing, typography } from '@/theme';
 
 type Icon = ComponentType<LucideProps>;
 
@@ -51,7 +52,7 @@ export function Card({
   if (gradient) {
     return (
       <LinearGradient
-        colors={[colors.surfaceElevated, colors.surface]}
+        colors={[colors.surfaceMuted, colors.surface, colors.background]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={[styles.card, style]}
@@ -71,6 +72,7 @@ export function PrimaryButton({
   loading,
   variant = 'gold',
   compact,
+  style,
 }: {
   label: string;
   onPress: () => void;
@@ -79,9 +81,11 @@ export function PrimaryButton({
   loading?: boolean;
   variant?: 'gold' | 'surface' | 'ghost' | 'danger';
   compact?: boolean;
+  style?: StyleProp<ViewStyle>;
 }) {
   return (
     <Pressable
+      accessibilityLabel={label}
       accessibilityRole="button"
       disabled={disabled || loading}
       onPress={onPress}
@@ -91,6 +95,7 @@ export function PrimaryButton({
         compact && styles.buttonCompact,
         (disabled || loading) && styles.buttonDisabled,
         pressed && styles.buttonPressed,
+        style,
       ]}
     >
       {loading ? (
@@ -128,12 +133,40 @@ export function ProgressBar({
   color?: string;
   height?: number;
 }) {
+  const progress = useRef(new Animated.Value(0)).current;
+  const normalizedValue = Math.max(0, Math.min(1, value));
+
+  useEffect(() => {
+    const animation = Animated.timing(progress, {
+      duration: motion.standard,
+      toValue: normalizedValue,
+      useNativeDriver: false,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [normalizedValue, progress]);
+
   return (
-    <View style={[styles.progressTrack, { height }]}>
-      <View
+    <View
+      accessibilityRole="progressbar"
+      accessibilityValue={{
+        max: 100,
+        min: 0,
+        now: Math.round(normalizedValue * 100),
+      }}
+      style={[styles.progressTrack, { height }]}
+    >
+      <Animated.View
         style={[
           styles.progressFill,
-          { backgroundColor: color, height, width: `${Math.max(0, Math.min(1, value)) * 100}%` },
+          {
+            backgroundColor: color,
+            height,
+            width: progress.interpolate({
+              inputRange: [0, 1],
+              outputRange: ['0%', '100%'],
+            }),
+          },
         ]}
       />
     </View>
@@ -152,7 +185,11 @@ export function StatCard({
   accent?: string;
 }) {
   return (
-    <View style={styles.statCard}>
+    <View
+      accessibilityLabel={`${label} : ${value}`}
+      accessible
+      style={styles.statCard}
+    >
       <IconComponent size={18} color={accent} />
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
@@ -171,6 +208,9 @@ export function Pill({
 }) {
   return (
     <Pressable
+      accessibilityLabel={label}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityState={{ selected: Boolean(selected) }}
       disabled={!onPress}
       onPress={onPress}
       style={({ pressed }) => [
@@ -253,12 +293,17 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   card: {
-    backgroundColor: colors.surface,
+    backgroundColor: 'rgba(25,56,42,0.94)',
     borderColor: colors.border,
     borderRadius: radius.lg,
     borderWidth: 1,
+    elevation: 2,
     overflow: 'hidden',
     padding: spacing.lg,
+    shadowColor: '#000000',
+    shadowOffset: { height: 5, width: 0 },
+    shadowOpacity: 0.14,
+    shadowRadius: 10,
   },
   button: {
     alignItems: 'center',
@@ -270,7 +315,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   button_gold: {
-    backgroundColor: colors.gold,
+    backgroundColor: colors.goldSoft,
+    borderColor: colors.goldPale,
+    borderWidth: 1,
+    elevation: 5,
+    shadowColor: colors.gold,
+    shadowOffset: { height: 5, width: 0 },
+    shadowOpacity: 0.24,
+    shadowRadius: 10,
   },
   button_surface: {
     backgroundColor: colors.surfaceElevated,
@@ -320,7 +372,7 @@ const styles = StyleSheet.create({
   },
   statCard: {
     alignItems: 'center',
-    backgroundColor: colors.surface,
+    backgroundColor: 'rgba(25,56,42,0.94)',
     borderColor: colors.border,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -350,7 +402,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   pillSelected: {
-    backgroundColor: 'rgba(212,175,55,0.17)',
+    backgroundColor: 'rgba(212,163,115,0.17)',
     borderColor: colors.gold,
   },
   pillText: {
@@ -370,17 +422,23 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: colors.text,
-    fontFamily: typography.bold,
-    fontSize: 19,
+    fontFamily: typography.extraBold,
+    fontSize: 18,
+    letterSpacing: -0.3,
   },
   iconButton: {
     alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
+    backgroundColor: 'rgba(25,56,42,0.95)',
+    borderColor: colors.borderStrong,
     borderRadius: radius.pill,
     borderWidth: 1,
     height: 44,
     justifyContent: 'center',
     width: 44,
+    elevation: 3,
+    shadowColor: '#000000',
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
   },
 });

@@ -5,14 +5,23 @@ import {
   Award,
   BookOpen,
   CheckCircle2,
-  Flame,
+  Clock3,
+  GraduationCap,
   Play,
+  RotateCcw,
   Settings2,
-  Sparkles,
-  Star,
+  Zap,
 } from 'lucide-react-native';
 
 import { AppScreen } from '@/components/AppScreen';
+import { FadeInView } from '@/components/FadeInView';
+import {
+  MetricStrip,
+  RewardProgress,
+  StreakBanner,
+} from '@/components/HabitProgress';
+import { GeometricDivider, IslamicStar } from '@/components/IslamicOrnaments';
+import { OrnamentalCard } from '@/components/OrnamentalCard';
 import {
   Card,
   Eyebrow,
@@ -20,7 +29,6 @@ import {
   PrimaryButton,
   ProgressBar,
   SectionHeader,
-  StatCard,
 } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
 import { useSubscription } from '@/providers/SubscriptionProvider';
@@ -31,8 +39,9 @@ import {
   useQuranStore,
 } from '@/store/useQuranStore';
 import { colors, radius, spacing, typography } from '@/theme';
-import { dateKey } from '@/utils/date';
+import { addDays, dateKey } from '@/utils/date';
 import { getLevelProgress } from '@/utils/gamification';
+import { buildSessionPreview } from '@/utils/sessionPlan';
 
 export default function HomeScreen() {
   const profile = useQuranStore((state) => state.profile);
@@ -41,22 +50,59 @@ export default function HomeScreen() {
   const knownCount = useQuranStore(selectKnownCount);
   const learningProgress = useQuranStore(selectLearningProgress);
   const startDailySession = useQuranStore((state) => state.startDailySession);
-  const { configured, isPremium, loading } = useSubscription();
-  const hasFullAccess = !configured || loading || isPremium;
-  const completedToday = history.some((record) => record.date === dateKey());
+  const progress = useQuranStore((state) => state.progress);
+  const { configured, isPremium } = useSubscription();
+  const hasFullAccess = !configured || isPremium;
+  const todayRecord = history.find((record) => record.date === dateKey());
+  const completedToday = Boolean(todayRecord);
   const learningSurah = getSurah(learningProgress?.surahNumber);
   const level = getLevelProgress(stats.totalXP);
+  const totalVersesLearned = Object.values(progress).reduce(
+    (total, item) => total + item.versesLearned,
+    0,
+  );
+  const sessionPlan = buildSessionPreview(
+    progress,
+    profile,
+    new Date(),
+    hasFullAccess ? profile.dailyGoalReviews : Math.min(3, profile.dailyGoalReviews),
+    hasFullAccess ? undefined : FREE_SURAH_NUMBERS,
+  );
+  const sessionIsEmpty =
+    sessionPlan.reviewCount === 0 && sessionPlan.versesCount === 0;
+  const reviewNames = sessionPlan.reviewSurahNumbers
+    .map((number) => getSurah(number)?.nameTranslit)
+    .filter(Boolean)
+    .join(' · ');
+  const missionLearningSurah = getSurah(sessionPlan.learningSurah);
+  const sevenDaysAgo = dateKey(addDays(new Date(), -6));
+  const activeDaysThisWeek = new Set(
+    history
+      .filter((record) => record.date >= sevenDaysAgo)
+      .map((record) => record.date),
+  ).size;
+  const displayedReviews = completedToday
+    ? todayRecord?.surahsReviewed ?? 0
+    : sessionPlan.reviewCount;
+  const displayedVerses = completedToday
+    ? todayRecord?.versesLearned ?? 0
+    : sessionPlan.versesCount;
   const progressValue = learningProgress
     ? learningProgress.versesLearned / learningProgress.totalVerses
     : 0;
 
-  function startSession() {
+  function startSession(isBonus = false) {
     startDailySession(
       hasFullAccess
-        ? undefined
+        ? {
+            isBonus,
+            freezeAllowance: 3,
+          }
         : {
             maxReviews: 3,
             allowedSurahNumbers: FREE_SURAH_NUMBERS,
+            isBonus,
+            freezeAllowance: 1,
           },
     );
     const session = useQuranStore.getState().activeSession;
@@ -70,72 +116,132 @@ export default function HomeScreen() {
           <Text style={styles.greeting}>Assalamu alaykum,</Text>
           <Text style={styles.name}>{profile.displayName}</Text>
         </View>
-        <View style={styles.headerActions}>
-          <View style={styles.streak}>
-            <Flame color={colors.gold} fill={colors.gold} size={19} />
-            <Text style={styles.streakText}>{stats.currentStreak}</Text>
-          </View>
-          <IconButton
-            icon={Settings2}
-            label="Ouvrir les réglages"
-            onPress={() => router.push('/settings')}
-          />
-        </View>
+        <IconButton
+          icon={Settings2}
+          label="Ouvrir les réglages"
+          onPress={() => router.push('/settings')}
+        />
       </View>
 
-      <Card gradient style={styles.sessionCard}>
-        <View style={styles.sessionGlow} />
-        <View style={styles.sessionTop}>
-          <View>
-            <Eyebrow>{completedToday ? 'Rendez-vous tenu' : 'Session du jour'}</Eyebrow>
-            <Text style={styles.sessionTitle}>
-              {completedToday ? 'Belle constance.' : `${profile.dailyGoalMinutes} minutes pour avancer`}
-            </Text>
-          </View>
-          <View style={[styles.sessionIcon, completedToday && styles.sessionIconDone]}>
-            {completedToday ? (
-              <CheckCircle2 color={colors.success} size={27} />
-            ) : (
-              <BookOpen color={colors.gold} size={27} />
-            )}
-          </View>
-        </View>
+      <StreakBanner
+        current={stats.currentStreak}
+        freezeCount={stats.freezeCount}
+        longest={stats.longestStreak}
+      />
 
-        <View style={styles.sessionDetails}>
-          <View style={styles.sessionDetail}>
-            <Text style={styles.sessionDetailValue}>
-              {hasFullAccess ? profile.dailyGoalReviews : Math.min(3, profile.dailyGoalReviews)}
-            </Text>
-            <Text style={styles.sessionDetailLabel}>sourates à revoir</Text>
+      <FadeInView>
+        <OrnamentalCard contentStyle={styles.sessionCard}>
+          <View style={styles.sessionGlow} />
+          <View style={styles.sessionTop}>
+            <View style={styles.sessionHeading}>
+              <Eyebrow>
+                {completedToday
+                  ? 'Rendez-vous tenu'
+                  : sessionIsEmpty
+                    ? 'Progression à jour'
+                    : 'Mission du jour'}
+              </Eyebrow>
+              <Text style={styles.sessionTitle}>
+                {completedToday
+                  ? 'Belle constance.'
+                  : sessionIsEmpty
+                    ? 'Tout est à jour. Reviens demain.'
+                    : 'Avance en quelques minutes.'}
+              </Text>
+            </View>
+            <View style={[styles.sessionIcon, completedToday && styles.sessionIconDone]}>
+              {completedToday ? (
+                <CheckCircle2 color={colors.success} size={27} />
+              ) : (
+                <IslamicStar color={colors.goldSoft} size={30} />
+              )}
+            </View>
           </View>
-          <View style={styles.sessionDivider} />
-          <View style={styles.sessionDetail}>
-            <Text style={styles.sessionDetailValue}>{profile.dailyGoalVerses}</Text>
-            <Text style={styles.sessionDetailLabel}>versets à apprendre</Text>
-          </View>
-        </View>
 
-        {completedToday ? (
-          <PrimaryButton
-            icon={ArrowRight}
-            label="Voir ma progression"
-            onPress={() => router.push('/stats')}
-            variant="surface"
-          />
-        ) : (
-          <PrimaryButton icon={Play} label="Commencer ma session" onPress={startSession} />
-        )}
-      </Card>
+          {completedToday ? (
+            <View style={styles.sessionDetails}>
+              <View style={styles.sessionDetail}>
+                <Text style={styles.sessionDetailValue}>{displayedReviews}</Text>
+                <Text style={styles.sessionDetailLabel}>sourates révisées</Text>
+              </View>
+              <View style={styles.sessionDivider} />
+              <View style={styles.sessionDetail}>
+                <Text style={styles.sessionDetailValue}>{displayedVerses}</Text>
+                <Text style={styles.sessionDetailLabel}>versets appris</Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.missionList}>
+              <View style={styles.missionRow}>
+                <View style={styles.missionIcon}>
+                  <RotateCcw color={colors.gold} size={18} />
+                </View>
+                <View style={styles.missionCopy}>
+                  <Text style={styles.missionLabel}>Réviser</Text>
+                  <Text numberOfLines={1} style={styles.missionValue}>
+                    {reviewNames || 'Aucune révision prévue'}
+                  </Text>
+                </View>
+                <Text style={styles.missionCount}>{sessionPlan.reviewCount}</Text>
+              </View>
+              <View style={styles.missionRow}>
+                <View style={styles.missionIcon}>
+                  <GraduationCap color={colors.gold} size={19} />
+                </View>
+                <View style={styles.missionCopy}>
+                  <Text style={styles.missionLabel}>Apprendre</Text>
+                  <Text numberOfLines={1} style={styles.missionValue}>
+                    {missionLearningSurah && sessionPlan.learningVerseStart
+                      ? `${missionLearningSurah.nameTranslit} · versets ${sessionPlan.learningVerseStart}–${sessionPlan.learningVerseEnd}`
+                      : 'Consolider tes acquis'}
+                  </Text>
+                </View>
+                <Text style={styles.missionCount}>{sessionPlan.versesCount}</Text>
+              </View>
+              <GeometricDivider />
+              <View style={styles.estimatedTime}>
+                <Clock3 color={colors.goldSoft} size={17} />
+                <Text style={styles.estimatedTimeLabel}>Temps estimé</Text>
+                <Text style={styles.estimatedTimeValue}>
+                  {sessionPlan.estimatedMinutes} min
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {completedToday || sessionIsEmpty ? (
+            <View style={styles.completedActions}>
+              <PrimaryButton
+                icon={Play}
+                label="Faire une session bonus"
+                onPress={() => startSession(true)}
+              />
+              <PrimaryButton
+                icon={ArrowRight}
+                label="Voir ma progression"
+                onPress={() => router.push('/stats')}
+                variant="surface"
+              />
+            </View>
+          ) : (
+            <PrimaryButton
+              icon={Play}
+              label="Commencer ma session"
+              onPress={() => startSession(false)}
+            />
+          )}
+        </OrnamentalCard>
+      </FadeInView>
 
       {learningSurah && learningProgress ? (
         <>
           <SectionHeader
-            title="En apprentissage"
             action={
               <Text
+                accessibilityRole="button"
                 onPress={() =>
                   !hasFullAccess && !isFreeSurah(learningSurah.number)
-                    ? router.push('/subscription')
+                    ? router.push(`/subscription?surah=${learningSurah.number}`)
                     : router.push('/learn')
                 }
                 style={styles.link}
@@ -143,23 +249,29 @@ export default function HomeScreen() {
                 Continuer
               </Text>
             }
+            title="En apprentissage"
           />
           <Card style={styles.learningCard}>
             <View style={styles.learningTop}>
               <View style={styles.surahMark}>
-                <Text style={styles.surahNumber}>{learningSurah.number}</Text>
+                <GraduationCap color={colors.gold} size={20} />
               </View>
               <View style={styles.learningCopy}>
                 <Text style={styles.learningName}>{learningSurah.nameTranslit}</Text>
                 <Text style={styles.learningMeta}>
-                  {learningSurah.nameFr} · verset {learningProgress.versesLearned + 1}/
-                  {learningSurah.totalVerses}
+                  Prochain verset : {Math.min(
+                    learningProgress.versesLearned + 1,
+                    learningSurah.totalVerses,
+                  )}
+                  /{learningSurah.totalVerses}
                 </Text>
               </View>
               <Text style={styles.learningArabic}>{learningSurah.name}</Text>
             </View>
             <View style={styles.progressLabelRow}>
-              <Text style={styles.progressLabel}>Progression</Text>
+              <Text style={styles.progressLabel}>
+                {learningProgress.versesLearned} versets mémorisés
+              </Text>
               <Text style={styles.progressValue}>{Math.round(progressValue * 100)}%</Text>
             </View>
             <ProgressBar value={progressValue} />
@@ -167,36 +279,32 @@ export default function HomeScreen() {
         </>
       ) : null}
 
-      <SectionHeader title="Ton élan" />
-      <View style={styles.statsRow}>
-        <StatCard icon={Flame} label="jours de suite" value={stats.currentStreak} />
-        <StatCard icon={BookOpen} label="sourates connues" value={knownCount} />
-        <StatCard icon={Star} label="XP gagnés" value={stats.totalXP} />
-      </View>
+      <FadeInView delay={80}>
+        <SectionHeader title="Ton élan" />
+        <MetricStrip
+          items={[
+            { icon: BookOpen, label: 'sourates connues', value: knownCount },
+            { icon: GraduationCap, label: 'versets mémorisés', value: totalVersesLearned },
+            { icon: Zap, label: 'XP gagnés', value: stats.totalXP },
+          ]}
+        />
+      </FadeInView>
 
-      <Card style={styles.levelCard}>
-        <View style={styles.levelTop}>
-          <View style={styles.levelIcon}>
-            <Award color={colors.gold} size={23} />
-          </View>
-          <View style={styles.levelCopy}>
-            <Text style={styles.levelLabel}>Niveau {level.current.level}</Text>
-            <Text style={styles.levelName}>
-              {level.current.name} · {level.current.arabic}
-            </Text>
-          </View>
-          {level.next ? <Text style={styles.levelRemaining}>{level.remaining} XP</Text> : null}
-        </View>
-        <ProgressBar value={level.progress} color={colors.success} height={7} />
-      </Card>
-
-      <SectionHeader title="Une intention simple" />
-      <View style={styles.quote}>
-        <Sparkles color={colors.gold} size={19} />
-        <Text style={styles.quoteText}>
-          « Les œuvres les plus aimées sont les plus régulières, même si elles sont peu nombreuses. »
-        </Text>
-      </View>
+      <SectionHeader title="Prochaine récompense" />
+      <RewardProgress
+        detail={
+          level.next
+            ? `${level.remaining} XP restants · ${activeDaysThisWeek}/5 jours actifs cette semaine`
+            : `${activeDaysThisWeek}/5 jours actifs cette semaine`
+        }
+        eyebrow={`Niveau ${level.current.level}`}
+        icon={Award}
+        title={level.next ? `Débloquer ${level.next.name}` : 'Niveau maximal atteint'}
+        trailing={
+          <Text style={styles.rewardPercent}>{Math.round(level.progress * 100)}%</Text>
+        }
+        value={level.progress}
+      />
     </AppScreen>
   );
 }
@@ -206,7 +314,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
     marginTop: spacing.sm,
   },
   greeting: {
@@ -220,33 +328,12 @@ const styles = StyleSheet.create({
     fontSize: 27,
     letterSpacing: -0.7,
   },
-  headerActions: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  streak: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.12)',
-    borderColor: colors.border,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 5,
-    height: 44,
-    paddingHorizontal: 14,
-  },
-  streakText: {
-    color: colors.goldSoft,
-    fontFamily: typography.extraBold,
-    fontSize: 15,
-  },
   sessionCard: {
-    minHeight: 330,
+    minHeight: 320,
     padding: spacing.lg,
   },
   sessionGlow: {
-    backgroundColor: 'rgba(212,175,55,0.11)',
+    backgroundColor: 'rgba(212,163,115,0.11)',
     borderRadius: 120,
     height: 210,
     position: 'absolute',
@@ -259,6 +346,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  sessionHeading: {
+    flex: 1,
+    paddingRight: spacing.sm,
+  },
   sessionTitle: {
     color: colors.text,
     fontFamily: typography.extraBold,
@@ -266,17 +357,17 @@ const styles = StyleSheet.create({
     letterSpacing: -0.6,
     lineHeight: 31,
     marginTop: spacing.sm,
-    maxWidth: 255,
+    maxWidth: 265,
   },
   sessionIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.12)',
+    backgroundColor: 'rgba(212,163,115,0.12)',
     borderColor: colors.border,
     borderRadius: radius.md,
     borderWidth: 1,
-    height: 58,
+    height: 56,
     justifyContent: 'center',
-    width: 58,
+    width: 56,
   },
   sessionIconDone: {
     backgroundColor: 'rgba(129,199,132,0.12)',
@@ -291,6 +382,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   sessionDetail: {
+    alignItems: 'center',
     flex: 1,
   },
   sessionDetailValue: {
@@ -301,13 +393,77 @@ const styles = StyleSheet.create({
   sessionDetailLabel: {
     color: colors.textMuted,
     fontFamily: typography.medium,
-    fontSize: 12,
+    fontSize: 11,
   },
   sessionDivider: {
     backgroundColor: colors.border,
     height: 38,
     marginHorizontal: spacing.md,
     width: 1,
+  },
+  missionList: {
+    backgroundColor: 'rgba(5,21,14,0.42)',
+    borderColor: 'rgba(212,163,115,0.16)',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginVertical: spacing.lg,
+    padding: spacing.md,
+  },
+  missionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+    minHeight: 52,
+  },
+  missionIcon: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(212,163,115,0.1)',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: 'center',
+    width: 38,
+  },
+  missionCopy: {
+    flex: 1,
+  },
+  missionLabel: {
+    color: colors.textMuted,
+    fontFamily: typography.bold,
+    fontSize: 10,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  missionValue: {
+    color: colors.text,
+    fontFamily: typography.bold,
+    fontSize: 14,
+    marginTop: 2,
+  },
+  missionCount: {
+    color: colors.goldSoft,
+    fontFamily: typography.extraBold,
+    fontSize: 18,
+  },
+  estimatedTime: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  estimatedTimeLabel: {
+    color: colors.textMuted,
+    flex: 1,
+    fontFamily: typography.medium,
+    fontSize: 12,
+  },
+  estimatedTimeValue: {
+    color: colors.goldSoft,
+    fontFamily: typography.extraBold,
+    fontSize: 14,
+  },
+  completedActions: {
+    gap: spacing.sm,
   },
   link: {
     color: colors.gold,
@@ -323,26 +479,19 @@ const styles = StyleSheet.create({
   },
   surahMark: {
     alignItems: 'center',
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: 13,
-    height: 45,
+    backgroundColor: 'rgba(212,163,115,0.1)',
+    borderRadius: radius.md,
+    height: 46,
     justifyContent: 'center',
     marginRight: spacing.md,
-    transform: [{ rotate: '45deg' }],
-    width: 45,
-  },
-  surahNumber: {
-    color: colors.gold,
-    fontFamily: typography.bold,
-    fontSize: 12,
-    transform: [{ rotate: '-45deg' }],
+    width: 46,
   },
   learningCopy: {
     flex: 1,
   },
   learningName: {
     color: colors.text,
-    fontFamily: typography.bold,
+    fontFamily: typography.extraBold,
     fontSize: 17,
   },
   learningMeta: {
@@ -354,13 +503,13 @@ const styles = StyleSheet.create({
   learningArabic: {
     color: colors.goldSoft,
     fontFamily: typography.arabic,
-    fontSize: 26,
+    fontSize: 25,
   },
   progressLabelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: spacing.sm,
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
   },
   progressLabel: {
     color: colors.textMuted,
@@ -372,64 +521,9 @@ const styles = StyleSheet.create({
     fontFamily: typography.bold,
     fontSize: 12,
   },
-  statsRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  levelCard: {
-    marginTop: spacing.sm,
-    padding: spacing.md,
-  },
-  levelTop: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    marginBottom: spacing.md,
-  },
-  levelIcon: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.12)',
-    borderRadius: radius.md,
-    height: 45,
-    justifyContent: 'center',
-    marginRight: spacing.md,
-    width: 45,
-  },
-  levelCopy: {
-    flex: 1,
-  },
-  levelLabel: {
-    color: colors.textMuted,
-    fontFamily: typography.bold,
-    fontSize: 11,
-    textTransform: 'uppercase',
-  },
-  levelName: {
-    color: colors.text,
-    fontFamily: typography.bold,
-    fontSize: 16,
-    marginTop: 2,
-  },
-  levelRemaining: {
-    color: colors.success,
-    fontFamily: typography.bold,
-    fontSize: 12,
-  },
-  quote: {
-    alignItems: 'flex-start',
-    backgroundColor: 'rgba(212,175,55,0.07)',
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: spacing.md,
-    padding: spacing.lg,
-  },
-  quoteText: {
-    color: colors.textMuted,
-    flex: 1,
-    fontFamily: typography.medium,
-    fontSize: 14,
-    fontStyle: 'italic',
-    lineHeight: 22,
+  rewardPercent: {
+    color: colors.gold,
+    fontFamily: typography.extraBold,
+    fontSize: 15,
   },
 });

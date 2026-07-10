@@ -4,6 +4,16 @@ import {
   UserStats,
   UserSurahProgress,
 } from '@/types';
+import {
+  historyPerfectCount,
+  historySessionCount,
+  normalizeStats,
+} from '@/utils/gamification';
+import {
+  mergeSessionRecords,
+  normalizeSessionRecord,
+  sessionEntries,
+} from '@/utils/sessionHistory';
 
 type SnapshotInput = Omit<CloudSnapshot, 'schemaVersion' | 'updatedAt'>;
 
@@ -39,9 +49,12 @@ function mergeHistory(local: SessionRecord[], remote: SessionRecord[]) {
   const records = new Map<string, SessionRecord>();
   [...remote, ...local].forEach((record) => {
     const existing = records.get(record.date);
-    if (!existing || record.completedAt >= existing.completedAt) {
-      records.set(record.date, record);
-    }
+    records.set(
+      record.date,
+      existing
+        ? mergeSessionRecords(existing, record)
+        : normalizeSessionRecord(record),
+    );
   });
   return [...records.values()].sort((a, b) => b.date.localeCompare(a.date));
 }
@@ -50,20 +63,43 @@ function mergeStats(
   local: UserStats,
   remote: UserStats,
   history: SessionRecord[],
+  localIsNewer: boolean,
 ): UserStats {
   const historyXP = history.reduce((sum, record) => sum + record.xpEarned, 0);
   const historyMinutes = history.reduce(
-    (sum, record) => sum + Math.max(1, Math.round(record.durationSeconds / 60)),
+    (sum, record) =>
+      sum +
+      sessionEntries(record).reduce(
+        (recordTotal, entry) =>
+          recordTotal + Math.max(1, Math.round(entry.durationSeconds / 60)),
+        0,
+      ),
     0,
   );
-  const historyPerfect = history.filter((record) => record.isPerfect).length;
+  const historySessions = history.reduce(
+    (sum, record) => sum + historySessionCount(record),
+    0,
+  );
+  const historyPerfect = history.reduce(
+    (sum, record) => sum + historyPerfectCount(record),
+    0,
+  );
+  const temporal = normalizeStats(localIsNewer ? local : remote);
+  const historyWeeklyXP = history
+    .filter((record) => record.date >= temporal.weekStart)
+    .reduce((sum, record) => sum + record.xpEarned, 0);
+  const localWeeklyXP =
+    local.weekStart === temporal.weekStart ? local.weeklyXP : 0;
+  const remoteWeeklyXP =
+    remote.weekStart === temporal.weekStart ? remote.weeklyXP : 0;
 
   return {
-    currentStreak: Math.max(local.currentStreak, remote.currentStreak),
+    ...temporal,
+    currentStreak: temporal.currentStreak,
     longestStreak: Math.max(local.longestStreak, remote.longestStreak),
     totalXP: Math.max(local.totalXP, remote.totalXP, historyXP),
-    weeklyXP: Math.max(local.weeklyXP, remote.weeklyXP),
-    totalSessions: Math.max(local.totalSessions, remote.totalSessions, history.length),
+    weeklyXP: Math.max(localWeeklyXP, remoteWeeklyXP, historyWeeklyXP),
+    totalSessions: Math.max(local.totalSessions, remote.totalSessions, historySessions),
     perfectSessions: Math.max(
       local.perfectSessions,
       remote.perfectSessions,
@@ -94,11 +130,11 @@ export function mergeCloudSnapshots(
   remote: CloudSnapshot,
   updatedAt = new Date().toISOString(),
 ): CloudSnapshot {
-  if (!local.onboardingCompleted && local.updatedAt >= remote.updatedAt) {
-    return { ...local, updatedAt };
-  }
-  if (!remote.onboardingCompleted && remote.updatedAt > local.updatedAt) {
+  if (!local.onboardingCompleted && remote.onboardingCompleted) {
     return { ...remote, updatedAt };
+  }
+  if (!remote.onboardingCompleted && local.onboardingCompleted) {
+    return { ...local, updatedAt };
   }
 
   const history = mergeHistory(local.history, remote.history);
@@ -112,7 +148,7 @@ export function mergeCloudSnapshots(
       : remote.onboardingCompleted,
     profile: localIsNewer ? local.profile : remote.profile,
     progress: mergeProgress(local, remote),
-    stats: mergeStats(local.stats, remote.stats, history),
+    stats: mergeStats(local.stats, remote.stats, history, localIsNewer),
     history,
   };
 }

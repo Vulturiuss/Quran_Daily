@@ -18,11 +18,13 @@ import { getVerseAudioUrl } from '@/services/quranApi';
 import { Verse } from '@/types';
 
 interface AudioContextValue {
+  completedRepeatTrackId?: string;
   currentTrackId?: string;
   error?: string;
   isBuffering: boolean;
   isPlaying: boolean;
   loadingTrackId?: string;
+  repeatRemaining: number;
   playVerse: (verse: Verse, reciterId: string, repeatCount?: number) => Promise<void>;
   stop: () => Promise<void>;
 }
@@ -35,10 +37,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     updateInterval: 200,
   });
   const status = useAudioPlayerStatus(player);
+  const [completedRepeatTrackId, setCompletedRepeatTrackId] = useState<string>();
   const [currentTrackId, setCurrentTrackId] = useState<string>();
   const [loadingTrackId, setLoadingTrackId] = useState<string>();
   const [error, setError] = useState<string>();
-  const repeatRemaining = useRef(0);
+  const repeatRemainingRef = useRef(0);
+  const repeatTarget = useRef(0);
+  const [repeatRemaining, setRepeatRemaining] = useState(0);
   const finishHandled = useRef(false);
 
   useEffect(() => {
@@ -58,20 +63,26 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
     if (status.didJustFinish && !finishHandled.current) {
       finishHandled.current = true;
-      if (repeatRemaining.current > 1) {
-        repeatRemaining.current -= 1;
+      if (repeatRemainingRef.current > 1) {
+        repeatRemainingRef.current -= 1;
+        setRepeatRemaining(repeatRemainingRef.current);
         void player.seekTo(0).then(() => player.play());
       } else {
-        repeatRemaining.current = 0;
+        repeatRemainingRef.current = 0;
+        setRepeatRemaining(0);
+        if (repeatTarget.current > 1) {
+          setCompletedRepeatTrackId(currentTrackId);
+        }
       }
     } else if (!status.didJustFinish) {
       finishHandled.current = false;
     }
-  }, [player, status.didJustFinish, status.error]);
+  }, [currentTrackId, player, status.didJustFinish, status.error]);
 
   async function playVerse(verse: Verse, reciterId: string, repeatCount = 1) {
     const trackId = `${reciterId}:${verse.verseKey}`;
     setError(undefined);
+    setCompletedRepeatTrackId(undefined);
 
     if (currentTrackId === trackId) {
       if (status.playing) {
@@ -79,11 +90,17 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      repeatRemaining.current = Math.max(1, repeatCount);
-      if (status.didJustFinish || (status.duration > 0 && status.currentTime >= status.duration)) {
-        await player.seekTo(0);
+      repeatTarget.current = Math.max(1, repeatCount);
+      repeatRemainingRef.current = repeatTarget.current;
+      setRepeatRemaining(repeatTarget.current);
+      try {
+        if (status.didJustFinish || (status.duration > 0 && status.currentTime >= status.duration)) {
+          await player.seekTo(0);
+        }
+        player.play();
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Impossible de lire le verset.');
       }
-      player.play();
       return;
     }
 
@@ -93,7 +110,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       if (!audioUrl) throw new Error('Audio indisponible pour ce verset.');
 
       player.replace(audioUrl);
-      repeatRemaining.current = Math.max(1, repeatCount);
+      repeatTarget.current = Math.max(1, repeatCount);
+      repeatRemainingRef.current = repeatTarget.current;
+      setRepeatRemaining(repeatTarget.current);
       finishHandled.current = false;
       setCurrentTrackId(trackId);
       player.play();
@@ -106,24 +125,29 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   async function stop() {
     player.pause();
-    repeatRemaining.current = 0;
+    repeatRemainingRef.current = 0;
+    setRepeatRemaining(0);
     if (status.currentTime > 0) await player.seekTo(0);
   }
 
   const value = useMemo<AudioContextValue>(
     () => ({
+      completedRepeatTrackId,
       currentTrackId,
       error,
       isBuffering: status.isBuffering,
       isPlaying: status.playing,
       loadingTrackId,
+      repeatRemaining,
       playVerse,
       stop,
     }),
     [
+      completedRepeatTrackId,
       currentTrackId,
       error,
       loadingTrackId,
+      repeatRemaining,
       status.isBuffering,
       status.playing,
       status.currentTime,

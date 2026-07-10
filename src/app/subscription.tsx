@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import {
   ArrowLeft,
   Check,
@@ -22,6 +22,7 @@ import {
 import { PACKAGE_TYPE, PurchasesPackage } from 'react-native-purchases';
 
 import { AppScreen } from '@/components/AppScreen';
+import { OrnamentalCard } from '@/components/OrnamentalCard';
 import {
   Card,
   IconButton,
@@ -30,6 +31,7 @@ import {
   SectionHeader,
 } from '@/components/ui';
 import { useCloud } from '@/providers/CloudProvider';
+import { getSurah } from '@/data/surahs';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import {
   FAMILY_ENTITLEMENT_ID,
@@ -37,6 +39,7 @@ import {
   PREMIUM_ENTITLEMENT_ID,
 } from '@/services/subscription';
 import { colors, radius, spacing, typography } from '@/theme';
+import { goBackOrReplace } from '@/utils/navigation';
 
 const benefits = [
   'Les 114 sourates et leur apprentissage guidé',
@@ -76,9 +79,11 @@ function packageDescription(aPackage: PurchasesPackage) {
 }
 
 export default function SubscriptionScreen() {
+  const params = useLocalSearchParams<{ surah?: string }>();
+  const requestedSurah = getSurah(Number(params.surah));
   const { session } = useCloud();
   const {
-    configured,
+    billingConfigured: configured,
     loading,
     isPremium,
     isFamily,
@@ -93,6 +98,9 @@ export default function SubscriptionScreen() {
 
   const packages = (offering?.availablePackages ?? []).filter(
     (aPackage) => isFamilyPlanEnabled || !isFamilyPackage(aPackage),
+  );
+  const monthlyPackage = packages.find(
+    (aPackage) => aPackage.packageType === PACKAGE_TYPE.MONTHLY,
   );
   const activeEntitlement =
     customerInfo?.entitlements.active[FAMILY_ENTITLEMENT_ID] ??
@@ -149,15 +157,23 @@ export default function SubscriptionScreen() {
     <AppScreen>
       <ScreenTitle
         title="Quran Daily Premium"
-        subtitle="Un parcours complet pour apprendre sans limite."
+        subtitle={
+          requestedSurah
+            ? `Débloque ${requestedSurah.nameTranslit} et poursuis ton parcours.`
+            : 'Un parcours complet pour apprendre sans limite.'
+        }
         action={
-          <IconButton icon={ArrowLeft} label="Retour" onPress={() => router.back()} />
+          <IconButton
+            icon={ArrowLeft}
+            label="Retour"
+            onPress={() => goBackOrReplace('/(tabs)')}
+          />
         }
       />
 
       {isPremium ? (
         <>
-          <Card gradient style={styles.activeCard}>
+          <OrnamentalCard contentStyle={styles.activeCard}>
             <View style={styles.crown}>
               {isFamily ? (
                 <Users color={colors.gold} size={32} />
@@ -171,7 +187,18 @@ export default function SubscriptionScreen() {
             <Text style={styles.activeText}>
               {subscriptionStatus ?? 'Ton accès complet est actif.'}
             </Text>
-          </Card>
+          </OrnamentalCard>
+
+          <View style={styles.activeBenefits}>
+            {benefits.map((benefit) => (
+              <View key={benefit} style={styles.benefit}>
+                <View style={styles.check}>
+                  <Check color={colors.backgroundDeep} size={14} strokeWidth={3} />
+                </View>
+                <Text style={styles.benefitText}>{benefit}</Text>
+              </View>
+            ))}
+          </View>
 
           {customerInfo?.managementURL ? (
             <PrimaryButton
@@ -184,15 +211,17 @@ export default function SubscriptionScreen() {
         </>
       ) : (
         <>
-          <Card gradient style={styles.hero}>
+          <OrnamentalCard contentStyle={styles.hero}>
             <View style={styles.heroIcon}>
               <Sparkles color={colors.gold} size={31} />
             </View>
             <Text style={styles.heroTitle}>Tout le Coran, à ton rythme</Text>
             <Text style={styles.heroText}>
-              Débloque l’intégralité du parcours et soutiens le développement de Quran Daily.
+              {requestedSurah
+                ? `${requestedSurah.nameTranslit} fait partie des 114 sourates accessibles avec Premium.`
+                : 'Débloque l’intégralité du parcours et soutiens le développement de Quran Daily.'}
             </Text>
-          </Card>
+          </OrnamentalCard>
 
           <View style={styles.benefits}>
             {benefits.map((benefit) => (
@@ -232,8 +261,25 @@ export default function SubscriptionScreen() {
               <View style={styles.packages}>
                 {packages.map((aPackage) => {
                   const active = selected?.identifier === aPackage.identifier;
+                  const annualSavings =
+                    aPackage.packageType === PACKAGE_TYPE.ANNUAL && monthlyPackage
+                      ? Math.max(
+                          0,
+                          Math.round(
+                            (1 -
+                              aPackage.product.price /
+                                (monthlyPackage.product.price * 12)) *
+                              100,
+                          ),
+                        )
+                      : 0;
                   return (
                     <Pressable
+                      accessibilityLabel={`${packageLabel(aPackage)}. ${
+                        packageDescription(aPackage)
+                      }. ${aPackage.product.priceString}`}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: active }}
                       key={aPackage.identifier}
                       onPress={() => setSelected(aPackage)}
                       style={[
@@ -242,7 +288,12 @@ export default function SubscriptionScreen() {
                       ]}
                     >
                       <View style={styles.packageCopy}>
-                        <Text style={styles.packageTitle}>{packageLabel(aPackage)}</Text>
+                        <View style={styles.packageTitleRow}>
+                          <Text style={styles.packageTitle}>{packageLabel(aPackage)}</Text>
+                          {annualSavings > 0 ? (
+                            <Text style={styles.savings}>-{annualSavings}%</Text>
+                          ) : null}
+                        </View>
                         <Text style={styles.packageDescription}>
                           {packageDescription(aPackage)}
                         </Text>
@@ -287,7 +338,12 @@ export default function SubscriptionScreen() {
           )}
 
           {configured && Platform.OS !== 'web' ? (
-            <Pressable onPress={() => void restorePurchase()} style={styles.restore}>
+            <Pressable
+              accessibilityLabel="Restaurer mes achats"
+              accessibilityRole="button"
+              onPress={() => void restorePurchase()}
+              style={styles.restore}
+            >
               <Text style={styles.restoreText}>Restaurer mes achats</Text>
             </Pressable>
           ) : null}
@@ -302,31 +358,22 @@ export default function SubscriptionScreen() {
         </Text>
       </View>
 
-      {process.env.EXPO_PUBLIC_TERMS_URL ||
-      process.env.EXPO_PUBLIC_PRIVACY_URL ? (
-        <View style={styles.legalLinks}>
-          {process.env.EXPO_PUBLIC_TERMS_URL ? (
-            <Text
-              onPress={() =>
-                void Linking.openURL(process.env.EXPO_PUBLIC_TERMS_URL!)
-              }
-              style={styles.legalLink}
-            >
-              Conditions d’utilisation
-            </Text>
-          ) : null}
-          {process.env.EXPO_PUBLIC_PRIVACY_URL ? (
-            <Text
-              onPress={() =>
-                void Linking.openURL(process.env.EXPO_PUBLIC_PRIVACY_URL!)
-              }
-              style={styles.legalLink}
-            >
-              Confidentialité
-            </Text>
-          ) : null}
-        </View>
-      ) : null}
+      <View style={styles.legalLinks}>
+        <Text
+          accessibilityRole="link"
+          onPress={() => router.push('/terms')}
+          style={styles.legalLink}
+        >
+          Conditions d’utilisation
+        </Text>
+        <Text
+          accessibilityRole="link"
+          onPress={() => router.push('/privacy')}
+          style={styles.legalLink}
+        >
+          Confidentialité
+        </Text>
+      </View>
     </AppScreen>
   );
 }
@@ -338,7 +385,7 @@ const styles = StyleSheet.create({
   },
   heroIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.13)',
+    backgroundColor: 'rgba(212,163,115,0.13)',
     borderColor: colors.border,
     borderRadius: radius.pill,
     borderWidth: 1,
@@ -365,6 +412,10 @@ const styles = StyleSheet.create({
   benefits: {
     gap: spacing.md,
     marginVertical: spacing.xl,
+  },
+  activeBenefits: {
+    gap: spacing.md,
+    marginVertical: spacing.lg,
   },
   benefit: {
     alignItems: 'center',
@@ -400,7 +451,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   packageSelected: {
-    backgroundColor: 'rgba(212,175,55,0.11)',
+    backgroundColor: 'rgba(212,163,115,0.11)',
     borderColor: colors.gold,
   },
   packageCopy: {
@@ -410,6 +461,21 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontFamily: typography.extraBold,
     fontSize: 17,
+  },
+  packageTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  savings: {
+    backgroundColor: 'rgba(129,199,132,0.14)',
+    borderRadius: radius.pill,
+    color: colors.success,
+    fontFamily: typography.extraBold,
+    fontSize: 10,
+    overflow: 'hidden',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
   },
   packageDescription: {
     color: colors.textMuted,
@@ -492,7 +558,7 @@ const styles = StyleSheet.create({
   },
   crown: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.13)',
+    backgroundColor: 'rgba(212,163,115,0.13)',
     borderRadius: radius.pill,
     height: 70,
     justifyContent: 'center',

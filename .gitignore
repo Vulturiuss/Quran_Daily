@@ -1,5 +1,8 @@
 node_modules/
 .expo/
+.agents/
+.claude/
+.superpowers/
 dist/
 web-build/
 .env

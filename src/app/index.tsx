@@ -8,11 +8,20 @@ import { useQuranStore } from '@/store/useQuranStore';
 export default function EntryScreen() {
   const hydrated = useQuranStore((state) => state.hydrated);
   const onboardingCompleted = useQuranStore((state) => state.onboardingCompleted);
+  const onboardingAccountPending = useQuranStore(
+    (state) => state.onboardingAccountPending,
+  );
 
   useEffect(() => {
     if (!hydrated) return;
-    router.replace(onboardingCompleted ? '/(tabs)' : '/onboarding');
-  }, [hydrated, onboardingCompleted]);
+    router.replace(
+      onboardingAccountPending
+        ? '/onboarding-account'
+        : onboardingCompleted
+          ? '/(tabs)'
+          : '/onboarding',
+    );
+  }, [hydrated, onboardingAccountPending, onboardingCompleted]);
 
   return (
     <View style={styles.container}>

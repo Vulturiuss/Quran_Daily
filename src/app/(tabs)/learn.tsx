@@ -1,8 +1,9 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { BookOpenCheck, Brain, Play, RotateCcw, Sparkles, Target } from 'lucide-react-native';
+import { BookOpenCheck, Brain, Check, Ear, Play, Sparkles, Target } from 'lucide-react-native';
 
 import { AppScreen } from '@/components/AppScreen';
+import { OrnamentalCard } from '@/components/OrnamentalCard';
 import { VerseCard } from '@/components/VerseCard';
 import { Card, Eyebrow, PrimaryButton, ProgressBar, ScreenTitle, SectionHeader } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
@@ -16,20 +17,28 @@ export default function LearnScreen() {
   const learning = useQuranStore(selectLearningProgress);
   const profile = useQuranStore((state) => state.profile);
   const startDailySession = useQuranStore((state) => state.startDailySession);
-  const { configured, isPremium, loading } = useSubscription();
-  const hasFullAccess = !configured || loading || isPremium;
+  const { configured, isPremium } = useSubscription();
+  const hasFullAccess = !configured || isPremium;
   const surah = getSurah(learning?.surahNumber);
   const verses = getVerses(learning?.surahNumber);
   const nextVerse = verses[learning?.versesLearned ?? 0];
   const progress = learning ? learning.versesLearned / learning.totalVerses : 0;
+  const premiumLocked = Boolean(
+    surah && !hasFullAccess && !isFreeSurah(surah.number),
+  );
 
   function start() {
+    if (surah && premiumLocked) {
+      router.push(`/subscription?surah=${surah.number}` as never);
+      return;
+    }
     startDailySession(
       hasFullAccess
-        ? undefined
+        ? { freezeAllowance: 3 }
         : {
             maxReviews: 3,
             allowedSurahNumbers: FREE_SURAH_NUMBERS,
+            freezeAllowance: 1,
           },
     );
     const session = useQuranStore.getState().activeSession;
@@ -52,28 +61,6 @@ export default function LearnScreen() {
     );
   }
 
-  if (!hasFullAccess && !isFreeSurah(surah.number)) {
-    return (
-      <AppScreen>
-        <ScreenTitle
-          title="Apprendre"
-          subtitle="Cette sourate fait partie du parcours Premium."
-        />
-        <Card gradient style={styles.empty}>
-          <Sparkles color={colors.gold} size={40} />
-          <Text style={styles.emptyTitle}>{surah.nameTranslit}</Text>
-          <Text style={styles.emptyText}>
-            Débloque les 114 sourates et poursuis ta progression sans limite.
-          </Text>
-          <PrimaryButton
-            label="Découvrir Premium"
-            onPress={() => router.push('/subscription')}
-          />
-        </Card>
-      </AppScreen>
-    );
-  }
-
   return (
     <AppScreen>
       <ScreenTitle
@@ -81,7 +68,7 @@ export default function LearnScreen() {
         subtitle="Un verset après l’autre, avec calme et répétition."
       />
 
-      <Card gradient style={styles.hero}>
+      <OrnamentalCard contentStyle={styles.hero}>
         <View style={styles.heroTop}>
           <View>
             <Eyebrow>Sourate en cours</Eyebrow>
@@ -104,11 +91,18 @@ export default function LearnScreen() {
           </View>
           <View style={styles.goalItem}>
             <Brain color={colors.success} size={17} />
-            <Text style={styles.goalText}>{surah.totalVerses - learning.versesLearned} restants</Text>
+            <Text style={styles.goalText}>
+              {surah.totalVerses - learning.versesLearned} restant
+              {surah.totalVerses - learning.versesLearned > 1 ? 's' : ''}
+            </Text>
           </View>
         </View>
-        <PrimaryButton icon={Play} label="Lancer ma session" onPress={start} />
-      </Card>
+        <PrimaryButton
+          icon={premiumLocked ? Sparkles : Play}
+          label={premiumLocked ? 'Débloquer cette sourate' : 'Lancer ma session'}
+          onPress={start}
+        />
+      </OrnamentalCard>
 
       {nextVerse ? (
         <>
@@ -117,23 +111,38 @@ export default function LearnScreen() {
         </>
       ) : null}
 
-      <SectionHeader title="Méthode du jour" />
-      <View style={styles.methodRow}>
-        <Card style={styles.methodCard}>
-          <View style={styles.methodIcon}>
-            <RotateCcw color={colors.gold} size={20} />
+      <SectionHeader title="Rituel de mémorisation" />
+      <Card style={styles.ritualCard}>
+        <View style={styles.ritualStep}>
+          <View style={styles.ritualIcon}>
+            <Ear color={colors.gold} size={19} />
           </View>
-          <Text style={styles.methodTitle}>Écoute & répète</Text>
-          <Text style={styles.methodText}>Lis lentement trois fois avant de masquer le texte.</Text>
-        </Card>
-        <Card style={styles.methodCard}>
-          <View style={styles.methodIcon}>
-            <Sparkles color={colors.gold} size={20} />
+          <View style={styles.ritualCopy}>
+            <Text style={styles.ritualTitle}>1. Écoute trois fois</Text>
+            <Text style={styles.ritualText}>Repère le rythme avant de réciter.</Text>
           </View>
-          <Text style={styles.methodTitle}>Récite de mémoire</Text>
-          <Text style={styles.methodText}>Valide seulement quand le verset vient sans effort.</Text>
-        </Card>
-      </View>
+        </View>
+        <View style={styles.ritualLine} />
+        <View style={styles.ritualStep}>
+          <View style={styles.ritualIcon}>
+            <Brain color={colors.gold} size={19} />
+          </View>
+          <View style={styles.ritualCopy}>
+            <Text style={styles.ritualTitle}>2. Masque le texte</Text>
+            <Text style={styles.ritualText}>Récite sans aide, puis révèle pour vérifier.</Text>
+          </View>
+        </View>
+        <View style={styles.ritualLine} />
+        <View style={styles.ritualStep}>
+          <View style={styles.ritualIcon}>
+            <Check color={colors.success} size={19} />
+          </View>
+          <View style={styles.ritualCopy}>
+            <Text style={styles.ritualTitle}>3. Valide sereinement</Text>
+            <Text style={styles.ritualText}>La régularité compte plus que la vitesse.</Text>
+          </View>
+        </View>
+      </Card>
     </AppScreen>
   );
 }
@@ -219,33 +228,42 @@ const styles = StyleSheet.create({
     fontFamily: typography.bold,
     fontSize: 11,
   },
-  methodRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  methodCard: {
-    flex: 1,
+  ritualCard: {
     padding: spacing.md,
   },
-  methodIcon: {
+  ritualStep: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.1)',
-    borderRadius: radius.md,
+    flexDirection: 'row',
+  },
+  ritualIcon: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(212,163,115,0.1)',
+    borderRadius: radius.pill,
     height: 40,
     justifyContent: 'center',
-    marginBottom: spacing.md,
+    marginRight: spacing.md,
     width: 40,
   },
-  methodTitle: {
+  ritualCopy: {
+    flex: 1,
+  },
+  ritualTitle: {
     color: colors.text,
     fontFamily: typography.bold,
     fontSize: 14,
   },
-  methodText: {
+  ritualText: {
     color: colors.textMuted,
     fontFamily: typography.regular,
     fontSize: 12,
-    lineHeight: 18,
-    marginTop: spacing.xs,
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  ritualLine: {
+    backgroundColor: colors.border,
+    height: spacing.sm,
+    marginLeft: 20,
+    marginVertical: 2,
+    width: 1,
   },
 });

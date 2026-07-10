@@ -1,0 +1,42 @@
+appId: com.qurandaily.app
+---
+- clearState
+- launchApp
+- extendedWaitUntil:
+    visible: "Quran Daily"
+    timeout: 20000
+- tapOn: "Ton prénom"
+- inputText: "Reset"
+- tapOn: "Commencer"
+- tapOn: "Continuer"
+- tapOn: "Continuer"
+- tapOn: "Continuer"
+- tapOn: "C’est parti"
+- tapOn:
+    text: "Autoriser"
+    optional: true
+- tapOn:
+    text: "Allow"
+    optional: true
+- extendedWaitUntil:
+    visible: "Sauvegarde ta progression"
+    timeout: 20000
+- tapOn: "Continuer sans compte"
+- tapOn:
+    text: "Continuer sans compte"
+    optional: true
+- extendedWaitUntil:
+    visible: "Assalamu alaykum,"
+    timeout: 20000
+- tapOn: "Profil"
+- scrollUntilVisible:
+    element: "Réinitialiser l’application"
+    direction: DOWN
+    timeout: 20000
+- tapOn: "Réinitialiser l’application"
+- tapOn:
+    text: "Effacer"
+    optional: true
+- extendedWaitUntil:
+    visible: "Quran Daily"
+    timeout: 20000

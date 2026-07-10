@@ -1,13 +1,21 @@
-import { useEffect } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Check, CircleX, Frown, Sparkles, X } from 'lucide-react-native';
+import {
+  Check,
+  CircleX,
+  Frown,
+  Languages,
+  Sparkles,
+  TextQuote,
+  X,
+} from 'lucide-react-native';
 
 import { AppScreen } from '@/components/AppScreen';
 import { ArabicText } from '@/components/ArabicText';
 import { VerseAudioButton } from '@/components/VerseAudioButton';
-import { Card, IconButton, PrimaryButton, ProgressBar } from '@/components/ui';
+import { Card, IconButton, Pill, PrimaryButton, ProgressBar } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
 import { getVerses } from '@/data/verses';
 import { useQuranAudio } from '@/providers/AudioProvider';
@@ -16,9 +24,12 @@ import { colors, radius, spacing, typography } from '@/theme';
 import { ReviewRating } from '@/types';
 
 export default function ReviewSessionScreen() {
+  const scrollRef = useRef<ScrollView>(null);
   const session = useQuranStore((state) => state.activeSession);
   const rateCurrentReview = useQuranStore((state) => state.rateCurrentReview);
   const clearActiveSession = useQuranStore((state) => state.clearActiveSession);
+  const profile = useQuranStore((state) => state.profile);
+  const updateProfile = useQuranStore((state) => state.updateProfile);
   const { error: audioError, stop } = useQuranAudio();
   const currentNumber = session?.reviewQueue[session.reviewIndex ?? 0];
   const surah = getSurah(currentNumber);
@@ -34,10 +45,16 @@ export default function ReviewSessionScreen() {
     if (current >= total) router.replace('/session/learn');
   }, [current, session, total]);
 
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ animated: false, y: 0 });
+  }, [current]);
+
   async function rate(rating: ReviewRating) {
     await stop();
     void Haptics.impactAsync(
-      rating === 'good' ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium,
+      rating === 'good'
+        ? Haptics.ImpactFeedbackStyle.Light
+        : Haptics.ImpactFeedbackStyle.Medium,
     );
     rateCurrentReview(rating);
   }
@@ -60,7 +77,7 @@ export default function ReviewSessionScreen() {
   if (!session || !surah || current >= total) return null;
 
   return (
-    <AppScreen>
+    <AppScreen contentStyle={styles.screen} decorated={false} scroll={false}>
       <View style={styles.header}>
         <View>
           <Text style={styles.kicker}>Révision</Text>
@@ -72,70 +89,122 @@ export default function ReviewSessionScreen() {
       </View>
       <ProgressBar value={total ? current / total : 1} height={6} />
 
-      <View style={styles.surahHeader}>
-        <Text style={styles.surahName}>{surah.nameTranslit}</Text>
-        <ArabicText size={28} style={styles.surahArabic}>
-          {surah.name}
-        </ArabicText>
-        <Text style={styles.surahMeta}>{surah.totalVerses} versets</Text>
-      </View>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        style={styles.scroll}
+      >
+        <View style={styles.surahHeader}>
+          <Text style={styles.surahName}>{surah.nameTranslit}</Text>
+          <ArabicText size={28} style={styles.surahArabic}>
+            {surah.name}
+          </ArabicText>
+          <Text style={styles.surahMeta}>{surah.totalVerses} versets</Text>
+        </View>
 
-      <Card gradient style={styles.recitationCard}>
-        {verses.length ? (
-          verses.map((verse) => (
-            <View key={verse.verseNumber} style={styles.verseLine}>
-              <ArabicText size={27} style={styles.verseArabic}>{verse.textArabic}</ArabicText>
-              <VerseAudioButton compact verse={verse} />
-              <View style={styles.verseNumber}>
-                <Text style={styles.verseNumberText}>{verse.verseNumber}</Text>
+        <Card gradient style={styles.recitationCard}>
+          {verses.length ? (
+            verses.map((verse) => (
+              <View key={verse.verseNumber} style={styles.verseLine}>
+                <View style={styles.verseCopy}>
+                  <ArabicText size={27} style={styles.verseArabic}>
+                    {verse.textArabic}
+                  </ArabicText>
+                  {profile.showReviewTranslation ? (
+                    <Text style={styles.translation}>{verse.textFr}</Text>
+                  ) : null}
+                  {profile.showReviewTransliteration ? (
+                    <Text style={styles.transliteration}>{verse.textTranslit}</Text>
+                  ) : null}
+                </View>
+                <View style={styles.verseActions}>
+                  <VerseAudioButton compact verse={verse} />
+                  <View style={styles.verseNumber}>
+                    <Text style={styles.verseNumberText}>{verse.verseNumber}</Text>
+                  </View>
+                </View>
               </View>
+            ))
+          ) : (
+            <View style={styles.memoryPrompt}>
+              <Sparkles color={colors.gold} size={32} />
+              <Text style={styles.memoryTitle}>Récite cette sourate de mémoire</Text>
+              <Text style={styles.memoryText}>
+                Le texte complet sera disponible après synchronisation. Évalue honnêtement la
+                fluidité de ta récitation.
+              </Text>
             </View>
-          ))
-        ) : (
-          <View style={styles.memoryPrompt}>
-            <Sparkles color={colors.gold} size={32} />
-            <Text style={styles.memoryTitle}>Récite cette sourate de mémoire</Text>
-            <Text style={styles.memoryText}>
-              Le texte complet sera disponible après synchronisation. Évalue honnêtement la fluidité
-              de ta récitation.
-            </Text>
-          </View>
-        )}
-      </Card>
-      {audioError ? <Text style={styles.audioError}>{audioError}</Text> : null}
+          )}
+        </Card>
 
-      <Text style={styles.question}>Comment t’en souviens-tu ?</Text>
-      <View style={styles.ratingButtons}>
-        <PrimaryButton
-          compact
-          icon={Check}
-          label="Bien"
-          onPress={() => void rate('good')}
-          variant="surface"
-        />
-        <PrimaryButton
-          compact
-          icon={Frown}
-          label="À revoir"
-          onPress={() => void rate('hard')}
-          variant="surface"
-        />
-        <PrimaryButton
-          compact
-          icon={CircleX}
-          label="Oubliée"
-          onPress={() => void rate('forgot')}
-          variant="danger"
-        />
+        <View style={styles.displayToggles}>
+          <View style={styles.toggleLabel}>
+            <Languages color={colors.textMuted} size={16} />
+            <Pill
+              label="Translittération"
+              selected={profile.showReviewTransliteration}
+              onPress={() =>
+                updateProfile({
+                  showReviewTransliteration: !profile.showReviewTransliteration,
+                })
+              }
+            />
+          </View>
+          <View style={styles.toggleLabel}>
+            <TextQuote color={colors.textMuted} size={16} />
+            <Pill
+              label="Traduction"
+              selected={profile.showReviewTranslation}
+              onPress={() =>
+                updateProfile({
+                  showReviewTranslation: !profile.showReviewTranslation,
+                })
+              }
+            />
+          </View>
+        </View>
+        {audioError ? <Text style={styles.audioError}>{audioError}</Text> : null}
+      </ScrollView>
+
+      <View style={styles.footer}>
+        <Text style={styles.question}>Comment t’en souviens-tu ?</Text>
+        <View style={styles.ratingButtons}>
+          <PrimaryButton
+            compact
+            icon={Check}
+            label="Bien"
+            onPress={() => void rate('good')}
+            style={styles.ratingButton}
+            variant="surface"
+          />
+          <PrimaryButton
+            compact
+            icon={Frown}
+            label="À revoir"
+            onPress={() => void rate('hard')}
+            style={styles.ratingButton}
+            variant="surface"
+          />
+          <PrimaryButton
+            compact
+            icon={CircleX}
+            label="Oubliée"
+            onPress={() => void rate('forgot')}
+            style={styles.ratingButton}
+            variant="danger"
+          />
+        </View>
+        <Text style={styles.hint}>Ce choix ajuste la prochaine date de révision.</Text>
       </View>
-      <Text style={styles.hint}>
-        Ton choix ajuste automatiquement la prochaine date de révision.
-      </Text>
     </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    paddingBottom: spacing.sm,
+  },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -156,9 +225,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: spacing.md,
+  },
   surahHeader: {
     alignItems: 'center',
-    marginVertical: spacing.xl,
+    marginVertical: spacing.lg,
   },
   surahName: {
     color: colors.text,
@@ -187,7 +262,41 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   verseArabic: {
+    textAlign: 'right',
+  },
+  verseCopy: {
     flex: 1,
+  },
+  verseActions: {
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  translation: {
+    color: colors.text,
+    fontFamily: typography.medium,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: spacing.sm,
+  },
+  transliteration: {
+    color: colors.textMuted,
+    fontFamily: typography.regular,
+    fontSize: 12,
+    fontStyle: 'italic',
+    lineHeight: 18,
+    marginTop: spacing.xs,
+  },
+  displayToggles: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    justifyContent: 'center',
+    marginTop: spacing.md,
+  },
+  toggleLabel: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
   },
   verseNumber: {
     alignItems: 'center',
@@ -205,8 +314,8 @@ const styles = StyleSheet.create({
   },
   memoryPrompt: {
     alignItems: 'center',
-    minHeight: 230,
     justifyContent: 'center',
+    minHeight: 230,
   },
   memoryTitle: {
     color: colors.text,
@@ -223,24 +332,32 @@ const styles = StyleSheet.create({
     maxWidth: 290,
     textAlign: 'center',
   },
+  footer: {
+    backgroundColor: colors.backgroundDeep,
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    paddingTop: spacing.sm,
+  },
   question: {
     color: colors.text,
     fontFamily: typography.bold,
-    fontSize: 16,
-    marginBottom: spacing.md,
-    marginTop: spacing.xl,
+    fontSize: 14,
+    marginBottom: spacing.sm,
     textAlign: 'center',
   },
   ratingButtons: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.xs,
+  },
+  ratingButton: {
+    flex: 1,
+    paddingHorizontal: spacing.xs,
   },
   hint: {
     color: colors.textFaint,
     fontFamily: typography.regular,
-    fontSize: 11,
-    lineHeight: 17,
-    marginTop: spacing.md,
+    fontSize: 10,
+    marginTop: spacing.xs,
     textAlign: 'center',
   },
   audioError: {

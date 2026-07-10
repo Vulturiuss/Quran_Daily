@@ -2,7 +2,7 @@ import { ReviewRating, UserSurahProgress } from '@/types';
 import { addDays } from '@/utils/date';
 
 const MIN_EASE = 1.3;
-const MAX_INTERVAL = 30;
+const MAX_INTERVAL = 180;
 
 export function calculateNextReview(
   progress: UserSurahProgress,

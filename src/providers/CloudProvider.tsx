@@ -10,11 +10,14 @@ import {
 } from 'react';
 import { AppState, Platform } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
-import type { Session } from '@supabase/supabase-js';
+import * as Linking from 'expo-linking';
+import { router } from 'expo-router';
+import type { Provider, Session } from '@supabase/supabase-js';
 
 import { isSupabaseConfigured, supabase } from '@/services/supabase';
 import { useQuranStore } from '@/store/useQuranStore';
 import { CloudSnapshot } from '@/types';
+import { resolveCloudIdentityAction } from '@/utils/cloudIdentity';
 import { createCloudSnapshot, mergeCloudSnapshots } from '@/utils/sync';
 
 export type CloudSyncStatus =
@@ -39,7 +42,10 @@ interface CloudContextValue {
   online: boolean;
   signIn: (email: string, password: string) => Promise<AuthResult>;
   signUp: (email: string, password: string) => Promise<AuthResult>;
+  signInWithProvider: (provider: 'google' | 'apple') => Promise<AuthResult>;
   signOut: () => Promise<AuthResult>;
+  resetLocalData: () => Promise<AuthResult>;
+  deleteAccount: () => Promise<AuthResult>;
   syncNow: () => Promise<void>;
 }
 
@@ -91,6 +97,10 @@ export function CloudProvider({ children }: { children: ReactNode }) {
   );
   const [lastError, setLastError] = useState<string>();
   const syncPromise = useRef<Promise<void> | null>(null);
+  const syncingUserId = useRef<string | undefined>(undefined);
+  const activeUserId = useRef<string | undefined>(undefined);
+  const deletingAccount = useRef(false);
+  activeUserId.current = session?.user.id;
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((networkState) => {
@@ -120,6 +130,7 @@ export function CloudProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (nextSession) deletingAccount.current = false;
       setSession(nextSession);
       setStatus(nextSession ? 'local' : 'local');
       setLastError(undefined);
@@ -130,6 +141,56 @@ export function CloudProvider({ children }: { children: ReactNode }) {
       active = false;
       subscription.unsubscribe();
     };
+  }, []);
+
+  useEffect(() => {
+    if (!supabase) return;
+    const client = supabase;
+
+    async function handleAuthCallback(url?: string | null) {
+      if (!url || !url.includes('auth/callback')) return;
+
+      try {
+        const parsed = new URL(url);
+        const fragment = new URLSearchParams(parsed.hash.replace(/^#/, ''));
+        const errorDescription =
+          parsed.searchParams.get('error_description') ??
+          fragment.get('error_description');
+        if (errorDescription) {
+          setLastError(decodeURIComponent(errorDescription));
+          setStatus('error');
+          return;
+        }
+
+        const code = parsed.searchParams.get('code');
+        if (code) {
+          const { error } = await client.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+          return;
+        }
+
+        const accessToken = fragment.get('access_token');
+        const refreshToken = fragment.get('refresh_token');
+        if (accessToken && refreshToken) {
+          const { error } = await client.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (error) throw error;
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Connexion sociale impossible.';
+        setLastError(message);
+        setStatus('error');
+      }
+    }
+
+    void Linking.getInitialURL().then(handleAuthCallback);
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      void handleAuthCallback(url);
+    });
+    return () => subscription.remove();
   }, []);
 
   useEffect(() => {
@@ -152,7 +213,7 @@ export function CloudProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const runSync = useCallback(async () => {
-    if (!supabase || !session || !hydrated) return;
+    if (!supabase || !session || !hydrated || deletingAccount.current) return;
     const client = supabase;
     const userId = session.user.id;
     if (!online) {
@@ -165,7 +226,6 @@ export function CloudProvider({ children }: { children: ReactNode }) {
 
     const state = useQuranStore.getState();
     const startedLocalChangeAt = state.syncMeta.lastLocalChangeAt;
-    const local = localSnapshot();
 
     async function fetchSnapshotRow() {
       const { data, error } = await client
@@ -179,6 +239,32 @@ export function CloudProvider({ children }: { children: ReactNode }) {
 
     let row = await fetchSnapshotRow();
     const initialRemote = row && isSnapshot(row.payload) ? row.payload : null;
+    if (activeUserId.current !== userId) return;
+    const identityAction = resolveCloudIdentityAction(
+      state.syncMeta,
+      userId,
+      Boolean(initialRemote),
+    );
+
+    if (identityAction !== 'merge-local') {
+      if (initialRemote) {
+        useQuranStore
+          .getState()
+          .applyCloudSnapshot(
+            initialRemote,
+            row?.updated_at ?? initialRemote.updatedAt,
+            userId,
+          );
+        if (!initialRemote.onboardingCompleted) {
+          router.replace('/onboarding');
+        }
+      } else {
+        useQuranStore.getState().resetForCloudUser(userId);
+        router.replace('/onboarding');
+      }
+      setStatus('synced');
+      return;
+    }
 
     if (row && initialRemote && !state.syncMeta.dirty) {
       if (
@@ -193,11 +279,13 @@ export function CloudProvider({ children }: { children: ReactNode }) {
         .applyCloudSnapshot(
           initialRemote,
           row.updated_at ?? initialRemote.updatedAt,
+          userId,
         );
       setStatus('synced');
       return;
     }
 
+    const local = localSnapshot();
     let committedSnapshot: CloudSnapshot | undefined;
     let committedAt: string | undefined;
 
@@ -250,6 +338,7 @@ export function CloudProvider({ children }: { children: ReactNode }) {
       );
     }
 
+    if (activeUserId.current !== userId) return;
     if (
       useQuranStore.getState().syncMeta.lastLocalChangeAt !==
       startedLocalChangeAt
@@ -259,26 +348,34 @@ export function CloudProvider({ children }: { children: ReactNode }) {
     }
     useQuranStore
       .getState()
-      .applyCloudSnapshot(committedSnapshot, committedAt);
+      .applyCloudSnapshot(committedSnapshot, committedAt, userId);
     setStatus('synced');
   }, [hydrated, online, session]);
 
   const syncNow = useCallback(async () => {
-    if (syncPromise.current) return syncPromise.current;
+    const userId = session?.user.id;
+    if (syncPromise.current && syncingUserId.current === userId) {
+      return syncPromise.current;
+    }
 
     const operation = runSync()
       .catch((error: unknown) => {
+        if (deletingAccount.current || activeUserId.current !== userId) return;
         const message =
           error instanceof Error ? error.message : 'Synchronisation impossible.';
         setLastError(message);
         setStatus(online ? 'error' : 'offline');
       })
       .finally(() => {
-        syncPromise.current = null;
+        if (syncPromise.current === operation) {
+          syncPromise.current = null;
+          syncingUserId.current = undefined;
+        }
       });
     syncPromise.current = operation;
+    syncingUserId.current = userId;
     return operation;
-  }, [online, runSync]);
+  }, [online, runSync, session?.user.id]);
 
   useEffect(() => {
     if (!session || !hydrated || !online) return;
@@ -291,6 +388,7 @@ export function CloudProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(
     async (email: string, password: string): Promise<AuthResult> => {
       if (!supabase) return { error: 'Supabase n’est pas configuré.' };
+      deletingAccount.current = false;
       const { error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
@@ -303,6 +401,7 @@ export function CloudProvider({ children }: { children: ReactNode }) {
   const signUp = useCallback(
     async (email: string, password: string): Promise<AuthResult> => {
       if (!supabase) return { error: 'Supabase n’est pas configuré.' };
+      deletingAccount.current = false;
       const displayName = useQuranStore.getState().profile.displayName;
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
@@ -317,6 +416,31 @@ export function CloudProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const signInWithProvider = useCallback(
+    async (provider: 'google' | 'apple'): Promise<AuthResult> => {
+      if (!supabase) return { error: 'Supabase n’est pas configuré.' };
+      deletingAccount.current = false;
+      const redirectTo = Linking.createURL('auth/callback');
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: provider as Provider,
+        options: {
+          redirectTo,
+          skipBrowserRedirect: Platform.OS !== 'web',
+        },
+      });
+      if (error) return { error: error.message };
+
+      if (Platform.OS !== 'web') {
+        if (!data.url) return { error: 'URL de connexion indisponible.' };
+        const supported = await Linking.canOpenURL(data.url);
+        if (!supported) return { error: 'Impossible d’ouvrir la page de connexion.' };
+        await Linking.openURL(data.url);
+      }
+      return {};
+    },
+    [],
+  );
+
   const signOut = useCallback(async (): Promise<AuthResult> => {
     if (!supabase) return {};
     const { error } = await supabase.auth.signOut();
@@ -326,6 +450,44 @@ export function CloudProvider({ children }: { children: ReactNode }) {
     }
     return error ? { error: error.message } : {};
   }, []);
+
+  const resetLocalData = useCallback(async (): Promise<AuthResult> => {
+    if (supabase && session) {
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
+      if (error) return { error: error.message };
+    }
+    useQuranStore.getState().resetApp();
+    setSession(null);
+    setStatus(isSupabaseConfigured ? 'local' : 'disabled');
+    setLastError(undefined);
+    return {};
+  }, [session]);
+
+  const deleteAccount = useCallback(async (): Promise<AuthResult> => {
+    if (!supabase || !session) return { error: 'Aucun compte connecté.' };
+    if (!online) {
+      return {
+        error: 'Une connexion internet est nécessaire pour supprimer définitivement le compte.',
+      };
+    }
+
+    deletingAccount.current = true;
+    setStatus('syncing');
+    setLastError(undefined);
+    const { error } = await supabase.rpc('delete_current_user');
+    if (error) {
+      deletingAccount.current = false;
+      setStatus('error');
+      setLastError(error.message);
+      return { error: error.message };
+    }
+
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+    useQuranStore.getState().resetApp();
+    setSession(null);
+    setStatus('local');
+    return {};
+  }, [online, session]);
 
   const value = useMemo<CloudContextValue>(
     () => ({
@@ -337,7 +499,10 @@ export function CloudProvider({ children }: { children: ReactNode }) {
       online,
       signIn,
       signUp,
+      signInWithProvider,
       signOut,
+      resetLocalData,
+      deleteAccount,
       syncNow,
     }),
     [
@@ -345,9 +510,12 @@ export function CloudProvider({ children }: { children: ReactNode }) {
       lastError,
       online,
       session,
+      deleteAccount,
       signIn,
+      signInWithProvider,
       signOut,
       signUp,
+      resetLocalData,
       status,
       syncNow,
     ],

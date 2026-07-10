@@ -1,5 +1,5 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
-import { Pause, Play, Repeat2 } from 'lucide-react-native';
+import { Check, Pause, Play, Repeat2 } from 'lucide-react-native';
 
 import { useQuranAudio } from '@/providers/AudioProvider';
 import { useSubscription } from '@/providers/SubscriptionProvider';
@@ -11,10 +11,14 @@ export function VerseAudioButton({
   verse,
   repeatCount = 1,
   compact = false,
+  reciterId: requestedReciterId,
+  label,
 }: {
   verse: Verse;
   repeatCount?: number;
   compact?: boolean;
+  reciterId?: string;
+  label?: string;
 }) {
   const preferredReciter = useQuranStore((state) => state.profile.preferredReciter);
   const {
@@ -22,38 +26,70 @@ export function VerseAudioButton({
     isPremium,
     loading: subscriptionLoading,
   } = useSubscription();
+  const selectedReciter = requestedReciterId ?? preferredReciter;
   const reciterId =
     configured && !subscriptionLoading && !isPremium
       ? 'mishary'
-      : preferredReciter;
-  const { currentTrackId, isBuffering, isPlaying, loadingTrackId, playVerse } = useQuranAudio();
+      : selectedReciter;
+  const {
+    completedRepeatTrackId,
+    currentTrackId,
+    isBuffering,
+    isPlaying,
+    loadingTrackId,
+    playVerse,
+    repeatRemaining,
+  } = useQuranAudio();
   const trackId = `${reciterId}:${verse.verseKey}`;
   const isCurrent = currentTrackId === trackId;
   const loading = loadingTrackId === trackId || (isCurrent && isBuffering);
   const playing = isCurrent && isPlaying;
-  const Icon = repeatCount > 1 ? Repeat2 : playing ? Pause : Play;
+  const repeatCompleted =
+    repeatCount > 1 && completedRepeatTrackId === trackId;
+  const visibleRepeatCount =
+    isCurrent && repeatRemaining > 0 ? repeatRemaining : repeatCount;
+  const Icon = repeatCompleted
+    ? Check
+    : repeatCount > 1
+      ? Repeat2
+      : playing
+        ? Pause
+        : Play;
 
   return (
     <Pressable
       accessibilityLabel={
-        playing ? 'Mettre la récitation en pause' : `Écouter le verset ${verse.verseNumber}`
+        playing
+          ? 'Mettre la récitation en pause'
+          : label ?? `Écouter le verset ${verse.verseNumber}`
       }
       accessibilityRole="button"
-      disabled={loading}
+      disabled={loading || repeatCompleted}
       onPress={() => void playVerse(verse, reciterId, repeatCount)}
       style={({ pressed }) => [
         styles.button,
         compact && styles.compact,
+        repeatCompleted && styles.completed,
         pressed && styles.pressed,
       ]}
     >
       {loading ? (
         <ActivityIndicator color={colors.gold} size="small" />
       ) : (
-        <Icon color={colors.gold} fill={playing ? colors.gold : 'transparent'} size={17} />
+        <Icon
+          color={repeatCompleted ? colors.success : colors.gold}
+          fill={playing && repeatCount === 1 ? colors.gold : 'transparent'}
+          size={17}
+        />
       )}
-      <Text style={styles.label}>
-        {repeatCount > 1 ? `Répéter ×${repeatCount}` : playing ? 'Pause' : 'Écouter'}
+      <Text style={[styles.label, repeatCompleted && styles.completedLabel]}>
+        {repeatCompleted
+          ? 'Répété 3 fois'
+          : repeatCount > 1
+            ? `Répéter ×${visibleRepeatCount}`
+            : playing
+              ? 'Pause'
+              : label ?? 'Écouter'}
       </Text>
     </Pressable>
   );
@@ -62,7 +98,7 @@ export function VerseAudioButton({
 const styles = StyleSheet.create({
   button: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.1)',
+    backgroundColor: 'rgba(212,163,115,0.1)',
     borderColor: colors.border,
     borderRadius: radius.pill,
     borderWidth: 1,
@@ -78,9 +114,16 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.72,
   },
+  completed: {
+    backgroundColor: 'rgba(129,199,132,0.1)',
+    borderColor: 'rgba(129,199,132,0.35)',
+  },
   label: {
     color: colors.gold,
     fontFamily: typography.bold,
     fontSize: 12,
+  },
+  completedLabel: {
+    color: colors.success,
   },
 });

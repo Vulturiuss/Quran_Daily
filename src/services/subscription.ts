@@ -5,7 +5,7 @@ export const PREMIUM_ENTITLEMENT_ID =
 export const FAMILY_ENTITLEMENT_ID =
   process.env.EXPO_PUBLIC_REVENUECAT_FAMILY_ENTITLEMENT?.trim() || 'family';
 export const isFamilyPlanEnabled =
-  process.env.EXPO_PUBLIC_ENABLE_FAMILY_PLAN === 'true';
+  process.env.EXPO_PUBLIC_ENABLE_FAMILY_PLAN !== 'false';
 
 const testKey = process.env.EXPO_PUBLIC_REVENUECAT_TEST_KEY?.trim();
 const platformKey = Platform.select({
@@ -17,9 +17,7 @@ const platformKey = Platform.select({
 export const revenueCatApiKey = testKey || platformKey;
 export const isRevenueCatConfigured = Boolean(revenueCatApiKey);
 
-export const FREE_SURAH_NUMBERS = [
-  1, 106, 107, 108, 109, 110, 111, 112, 113, 114,
-] as const;
+export const FREE_SURAH_NUMBERS = [1, 108, 112, 113, 114] as const;
 
 const freeSurahs = new Set<number>(FREE_SURAH_NUMBERS);
 

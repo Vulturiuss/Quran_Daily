@@ -2,8 +2,8 @@ import { useEffect } from 'react';
 import { Platform, View } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
-import type { Notification } from 'expo-notifications';
 import {
   Amiri_400Regular,
   Amiri_700Bold,
@@ -20,6 +20,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AudioProvider } from '@/providers/AudioProvider';
 import { CloudProvider } from '@/providers/CloudProvider';
+import { FamilyProvider } from '@/providers/FamilyProvider';
+import { GamificationProvider } from '@/providers/GamificationProvider';
+import { ReminderProvider } from '@/providers/ReminderProvider';
 import { SubscriptionProvider } from '@/providers/SubscriptionProvider';
 import { colors } from '@/theme';
 
@@ -29,28 +32,20 @@ function useNotificationNavigation() {
   useEffect(() => {
     if (Platform.OS === 'web') return;
 
-    let cancelled = false;
-    let subscription: { remove: () => void } | undefined;
-
-    const redirect = (notification: Notification) => {
+    const redirect = (notification: Notifications.Notification) => {
       const url = notification.request.content.data?.url;
       if (typeof url === 'string') router.push(url as never);
     };
 
-    void import('expo-notifications').then((Notifications) => {
-      if (cancelled) return;
-
-      const lastResponse = Notifications.getLastNotificationResponse();
-      if (lastResponse?.notification) redirect(lastResponse.notification);
-
-      subscription = Notifications.addNotificationResponseReceivedListener((response) =>
+    const lastResponse = Notifications.getLastNotificationResponse();
+    if (lastResponse?.notification) redirect(lastResponse.notification);
+    const subscription =
+      Notifications.addNotificationResponseReceivedListener((response) =>
         redirect(response.notification),
       );
-    });
 
     return () => {
-      cancelled = true;
-      subscription?.remove();
+      subscription.remove();
     };
   }, []);
 }
@@ -72,28 +67,50 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <CloudProvider>
-        <SubscriptionProvider>
-          <AudioProvider>
-            <StatusBar style="light" />
-            <Stack
-              screenOptions={{
-                animation: 'fade_from_bottom',
-                contentStyle: { backgroundColor: colors.background },
-                headerShown: false,
-              }}
-            >
-              <Stack.Screen name="index" />
-              <Stack.Screen name="onboarding" />
-              <Stack.Screen name="account" />
-              <Stack.Screen name="subscription" />
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="session/review" options={{ gestureEnabled: false }} />
-              <Stack.Screen name="session/learn" options={{ gestureEnabled: false }} />
-              <Stack.Screen name="session/complete" options={{ gestureEnabled: false }} />
-              <Stack.Screen name="surah/[number]" />
-            </Stack>
-          </AudioProvider>
-        </SubscriptionProvider>
+        <FamilyProvider>
+          <ReminderProvider>
+            <SubscriptionProvider>
+              <GamificationProvider>
+                <AudioProvider>
+                  <StatusBar style="light" />
+                  <Stack
+                    screenOptions={{
+                      animation: 'fade_from_bottom',
+                      contentStyle: { backgroundColor: colors.background },
+                      headerShown: false,
+                    }}
+                  >
+                    <Stack.Screen name="index" />
+                    <Stack.Screen name="onboarding" />
+                    <Stack.Screen name="onboarding-account" />
+                    <Stack.Screen name="account" />
+                    <Stack.Screen name="auth/callback" />
+                    <Stack.Screen name="family/index" />
+                    <Stack.Screen name="family/[userId]" />
+                    <Stack.Screen name="library" />
+                    <Stack.Screen name="privacy" />
+                    <Stack.Screen name="subscription" />
+                    <Stack.Screen name="terms" />
+                    <Stack.Screen name="(tabs)" />
+                    <Stack.Screen
+                      name="session/review"
+                      options={{ gestureEnabled: false }}
+                    />
+                    <Stack.Screen
+                      name="session/learn"
+                      options={{ gestureEnabled: false }}
+                    />
+                    <Stack.Screen
+                      name="session/complete"
+                      options={{ gestureEnabled: false }}
+                    />
+                    <Stack.Screen name="surah/[number]" />
+                  </Stack>
+                </AudioProvider>
+              </GamificationProvider>
+            </SubscriptionProvider>
+          </ReminderProvider>
+        </FamilyProvider>
       </CloudProvider>
     </SafeAreaProvider>
   );

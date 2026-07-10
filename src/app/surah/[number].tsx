@@ -12,6 +12,7 @@ import {
 
 import { AppScreen } from '@/components/AppScreen';
 import { ArabicText } from '@/components/ArabicText';
+import { OrnamentalCard } from '@/components/OrnamentalCard';
 import { VerseCard } from '@/components/VerseCard';
 import { Card, IconButton, PrimaryButton, ProgressBar, SectionHeader } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
@@ -22,6 +23,7 @@ import { reciters, ReciterId } from '@/services/quranApi';
 import { isFreeSurah } from '@/services/subscription';
 import { useQuranStore } from '@/store/useQuranStore';
 import { colors, radius, spacing, typography } from '@/theme';
+import { goBackOrReplace } from '@/utils/navigation';
 
 export default function SurahDetailScreen() {
   const params = useLocalSearchParams<{ number: string }>();
@@ -33,9 +35,9 @@ export default function SurahDetailScreen() {
   const setLearningSurah = useQuranStore((state) => state.setLearningSurah);
   const markSurahKnown = useQuranStore((state) => state.markSurahKnown);
   const { error: audioError } = useQuranAudio();
-  const { configured, isPremium, loading } = useSubscription();
+  const { configured, isPremium } = useSubscription();
   const premiumLocked =
-    configured && !loading && !isPremium && !isFreeSurah(number);
+    configured && !isPremium && !isFreeSurah(number);
 
   if (!surah) {
     return (
@@ -49,7 +51,11 @@ export default function SurahDetailScreen() {
     return (
       <AppScreen>
         <View style={styles.topBar}>
-          <IconButton icon={ArrowLeft} label="Retour" onPress={() => router.back()} />
+          <IconButton
+            icon={ArrowLeft}
+            label="Retour"
+            onPress={() => goBackOrReplace('/library')}
+          />
           <Text style={styles.headerLabel}>Sourate {surah.number}</Text>
           <View style={styles.placeholder} />
         </View>
@@ -68,7 +74,7 @@ export default function SurahDetailScreen() {
           <PrimaryButton
             icon={Crown}
             label="Découvrir Premium"
-            onPress={() => router.push('/subscription')}
+            onPress={() => router.push(`/subscription?surah=${surah.number}` as never)}
           />
         </Card>
       </AppScreen>
@@ -77,7 +83,7 @@ export default function SurahDetailScreen() {
 
   const value = progress ? progress.versesLearned / progress.totalVerses : 0;
   const effectiveReciter =
-    configured && !loading && !isPremium ? 'mishary' : preferredReciter;
+    configured && !isPremium ? 'mishary' : preferredReciter;
   const reciter =
     reciters[effectiveReciter as ReciterId] ?? reciters.mishary;
 
@@ -88,7 +94,7 @@ export default function SurahDetailScreen() {
 
   const header = (
     <>
-      <Card gradient style={styles.hero}>
+      <OrnamentalCard contentStyle={styles.hero}>
         <View style={styles.numberMark}>
           <Text style={styles.number}>{surah.number}</Text>
         </View>
@@ -127,7 +133,7 @@ export default function SurahDetailScreen() {
             />
           </View>
         ) : null}
-      </Card>
+      </OrnamentalCard>
 
       <View style={styles.actions}>
         {progress?.status !== 'known' ? (
@@ -154,8 +160,7 @@ export default function SurahDetailScreen() {
       <View style={styles.audioInfo}>
         <Wifi color={colors.success} size={17} />
         <Text style={styles.audioInfoText}>
-          Audio Quran.com · {reciter.name}. Les récitateurs alternatifs sont mis en cache après
-          leur première écoute; le fichier est téléchargé temporairement sur mobile avant lecture.
+          Audio Quran.com · {reciter.name}. Mis en cache après la première écoute.
         </Text>
       </View>
 
@@ -167,8 +172,12 @@ export default function SurahDetailScreen() {
   return (
     <AppScreen scroll={false} contentStyle={styles.screen}>
       <View style={styles.topBar}>
-        <IconButton icon={ArrowLeft} label="Retour" onPress={() => router.back()} />
-        <Text style={styles.headerLabel}>Sourate {surah.number}</Text>
+        <IconButton
+          icon={ArrowLeft}
+          label="Retour"
+          onPress={() => goBackOrReplace('/library')}
+        />
+        <Text style={styles.headerLabel}>{surah.nameTranslit}</Text>
         <View style={styles.placeholder} />
       </View>
 
@@ -182,7 +191,7 @@ export default function SurahDetailScreen() {
         removeClippedSubviews
         renderItem={({ item }) => (
           <View style={styles.verse}>
-            <VerseCard verse={item} />
+            <VerseCard tone="paper" verse={item} />
           </View>
         )}
         showsVerticalScrollIndicator={false}
@@ -325,7 +334,7 @@ const styles = StyleSheet.create({
   },
   lockedIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.13)',
+    backgroundColor: 'rgba(212,163,115,0.13)',
     borderRadius: radius.pill,
     height: 66,
     justifyContent: 'center',

@@ -10,18 +10,32 @@ export const reciters = {
   mishary: {
     id: 7,
     name: 'Mishary Rashid Al-Afasy',
+    style: 'Récitation claire et mélodieuse',
   },
   husary: {
     id: 6,
     name: 'Mahmoud Khalil Al-Husary',
+    style: 'Très articulé, idéal pour apprendre',
   },
   minshawi: {
     id: 9,
     name: 'Mohamed Siddiq Al-Minshawi',
+    style: 'Murattal lent et posé',
   },
   sudais: {
     id: 3,
     name: 'Abdul Rahman Al-Sudais',
+    style: 'Récitation de la Grande Mosquée',
+  },
+  shatri: {
+    id: 4,
+    name: 'Abu Bakr Al-Shatri',
+    style: 'Voix douce et rythme régulier',
+  },
+  shuraym: {
+    id: 10,
+    name: 'Saud Al-Shuraym',
+    style: 'Récitation ferme et expressive',
   },
 } as const;
 

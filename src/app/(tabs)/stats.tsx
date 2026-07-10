@@ -1,84 +1,129 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { Award, BookOpen, Clock3, Flame, Medal, Star, Trophy } from 'lucide-react-native';
+import {
+  Award,
+  BookOpen,
+  Clock3,
+  Flame,
+  GraduationCap,
+  Medal,
+  Star,
+  Trophy,
+} from 'lucide-react-native';
 
 import { AppScreen } from '@/components/AppScreen';
 import {
+  MetricStrip,
+  ProgressRing,
+} from '@/components/HabitProgress';
+import {
   Card,
+  Pill,
   PrimaryButton,
   ProgressBar,
   ScreenTitle,
   SectionHeader,
-  StatCard,
 } from '@/components/ui';
 import { badgeById, badges } from '@/data/badges';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { selectKnownCount, useQuranStore } from '@/store/useQuranStore';
 import { colors, radius, spacing, typography } from '@/theme';
-import { dateKey, formatShortDate } from '@/utils/date';
 import { getLevelProgress } from '@/utils/gamification';
-
-function lastSevenDays() {
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date();
-    date.setDate(date.getDate() - (6 - index));
-    return dateKey(date);
-  });
-}
+import {
+  ActivityRange,
+  buildActivitySeries,
+  summarizeActivity,
+} from '@/utils/statistics';
 
 export default function StatsScreen() {
+  const [range, setRange] = useState<ActivityRange>(7);
   const stats = useQuranStore((state) => state.stats);
   const history = useQuranStore((state) => state.history);
+  const progress = useQuranStore((state) => state.progress);
   const knownCount = useQuranStore(selectKnownCount);
-  const { configured, isPremium, loading } = useSubscription();
-  const hasFullAccess = !configured || loading || isPremium;
+  const { configured, isPremium } = useSubscription();
+  const hasFullAccess = !configured || isPremium;
   const level = getLevelProgress(stats.totalXP);
-  const days = lastSevenDays();
-  const values = days.map(
-    (day) => history.find((record) => record.date === day)?.xpEarned ?? 0,
+  const totalVersesLearned = Object.values(progress).reduce(
+    (total, item) => total + item.versesLearned,
+    0,
   );
-  const max = Math.max(50, ...values);
+  const activity = buildActivitySeries(history, range);
+  const activitySummary = summarizeActivity(activity);
+  const max = Math.max(50, ...activity.map((point) => point.xp));
 
   return (
     <AppScreen>
-      <ScreenTitle title="Ta progression" subtitle="Ce qui grandit grâce à ta régularité." />
-
-      <View style={styles.statsRow}>
-        <StatCard icon={Flame} label="streak actuel" value={stats.currentStreak} />
-        <StatCard icon={Trophy} label="record" value={stats.longestStreak} />
-        {hasFullAccess ? (
-          <StatCard icon={BookOpen} label="sourates" value={knownCount} />
-        ) : null}
-      </View>
+      <ScreenTitle
+        subtitle="Visualise le chemin parcouru, sans pression."
+        title="Ma progression"
+      />
 
       {!hasFullAccess ? (
-        <Card gradient style={styles.premiumGate}>
-          <Award color={colors.gold} size={34} />
-          <Text style={styles.premiumTitle}>Débloque toutes tes statistiques</Text>
-          <Text style={styles.premiumText}>
-            Graphiques, XP, niveaux, temps de récitation et collection complète de badges.
-          </Text>
-          <PrimaryButton
-            label="Découvrir Premium"
-            onPress={() => router.push('/subscription')}
+        <>
+          <MetricStrip
+            items={[
+              { icon: Flame, label: 'streak actuel', value: stats.currentStreak },
+              { icon: Trophy, label: 'record', value: stats.longestStreak },
+              { icon: BookOpen, label: 'sourates connues', value: knownCount },
+            ]}
           />
-        </Card>
+          <Card gradient style={styles.premiumGate}>
+            <Award color={colors.gold} size={34} />
+            <Text style={styles.premiumTitle}>Débloque toutes tes statistiques</Text>
+            <Text style={styles.premiumText}>
+              Graphiques, XP, niveaux, temps de récitation et collection complète de badges.
+            </Text>
+            <PrimaryButton
+              label="Découvrir Premium"
+              onPress={() => router.push('/subscription')}
+            />
+          </Card>
+        </>
       ) : (
         <>
-          <Card gradient style={styles.levelCard}>
+          <Card gradient style={styles.globalCard}>
+            <Text style={styles.globalTitle}>Progression globale</Text>
+            <View style={styles.globalContent}>
+              <ProgressRing label="du parcours" value={knownCount / 114} />
+              <View style={styles.globalMetrics}>
+                <View style={styles.globalMetric}>
+                  <BookOpen color={colors.gold} size={18} />
+                  <View>
+                    <Text style={styles.globalValue}>{knownCount}</Text>
+                    <Text style={styles.globalLabel}>sourates connues</Text>
+                  </View>
+                </View>
+                <View style={styles.globalMetric}>
+                  <GraduationCap color={colors.gold} size={18} />
+                  <View>
+                    <Text style={styles.globalValue}>{totalVersesLearned}</Text>
+                    <Text style={styles.globalLabel}>versets mémorisés</Text>
+                  </View>
+                </View>
+                <View style={styles.globalMetric}>
+                  <Clock3 color={colors.gold} size={18} />
+                  <View>
+                    <Text style={styles.globalValue}>{stats.totalMinutes} min</Text>
+                    <Text style={styles.globalLabel}>de récitation</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.levelDivider} />
             <View style={styles.levelHeader}>
               <View style={styles.levelBadge}>
-                <Award color={colors.gold} size={30} />
+                <Award color={colors.gold} size={22} />
               </View>
               <View style={styles.levelCopy}>
                 <Text style={styles.levelKicker}>Niveau {level.current.level}</Text>
-                <Text style={styles.levelName}>{level.current.name}</Text>
-                <Text style={styles.levelArabic}>{level.current.arabic}</Text>
+                <Text style={styles.levelName}>
+                  {level.current.name} · {level.current.arabic}
+                </Text>
               </View>
-              <View style={styles.xpBlock}>
-                <Text style={styles.xpValue}>{stats.totalXP}</Text>
-                <Text style={styles.xpLabel}>XP total</Text>
-              </View>
+              <Text style={styles.xpValue}>{stats.totalXP} XP</Text>
             </View>
             <ProgressBar value={level.progress} />
             <Text style={styles.levelFoot}>
@@ -88,49 +133,90 @@ export default function StatsScreen() {
             </Text>
           </Card>
 
-          <SectionHeader title="Les 7 derniers jours" />
+          <SectionHeader title="Régularité" />
+          <MetricStrip
+            items={[
+              { icon: Flame, label: 'streak actuel', value: stats.currentStreak },
+              { icon: Trophy, label: 'meilleur record', value: stats.longestStreak },
+              { icon: Star, label: 'sessions finies', value: stats.totalSessions },
+            ]}
+          />
+
+          <SectionHeader
+            action={
+              <View style={styles.rangePills}>
+                <Pill label="7 j" selected={range === 7} onPress={() => setRange(7)} />
+                <Pill label="30 j" selected={range === 30} onPress={() => setRange(30)} />
+              </View>
+            }
+            title="Activité"
+          />
           <Card>
-            <View style={styles.chart}>
-              {days.map((day, index) => (
-                <View key={day} style={styles.barColumn}>
-                  <Text style={styles.barValue}>{values[index] || ''}</Text>
+            <View style={styles.activitySummary}>
+              <View style={styles.activityMetric}>
+                <Text style={styles.activityValue}>{activitySummary.activeDays}</Text>
+                <Text style={styles.activityLabel}>jours actifs</Text>
+              </View>
+              <View style={styles.activityMetric}>
+                <Text style={styles.activityValue}>{activitySummary.minutes}</Text>
+                <Text style={styles.activityLabel}>minutes</Text>
+              </View>
+              <View style={styles.activityMetric}>
+                <Text style={styles.activityValue}>{activitySummary.xp}</Text>
+                <Text style={styles.activityLabel}>XP gagnés</Text>
+              </View>
+            </View>
+
+            <ScrollView
+              horizontal={range === 30}
+              contentContainerStyle={[
+                styles.chart,
+                range === 30 && styles.chartThirty,
+              ]}
+              showsHorizontalScrollIndicator={false}
+            >
+              {activity.map((point, index) => (
+                <View
+                  key={point.date}
+                  style={[
+                    styles.barColumn,
+                    range === 30 && styles.barColumnThirty,
+                  ]}
+                >
+                  <Text style={styles.barValue}>{point.xp || ''}</Text>
                   <View style={styles.barTrack}>
                     <View
                       style={[
                         styles.bar,
                         {
                           height: `${Math.max(
-                            values[index] ? 12 : 3,
-                            (values[index] / max) * 100,
+                            point.xp ? 12 : 3,
+                            (point.xp / max) * 100,
                           )}%`,
                         },
                       ]}
                     />
                   </View>
                   <Text style={styles.barLabel}>
-                    {formatShortDate(day).split(' ')[0]}
+                    {range === 30
+                      ? index % 5 === 0 || index === activity.length - 1
+                        ? Number(point.date.slice(-2))
+                        : ''
+                      : new Intl.DateTimeFormat('fr-FR', {
+                          weekday: 'narrow',
+                        }).format(new Date(`${point.date}T12:00:00`))}
                   </Text>
                 </View>
               ))}
-            </View>
+            </ScrollView>
           </Card>
 
-          <SectionHeader title="Vue d’ensemble" />
-          <View style={styles.overviewGrid}>
-            <Card style={styles.overviewCard}>
-              <Clock3 color={colors.gold} size={21} />
-              <Text style={styles.overviewValue}>{stats.totalMinutes} min</Text>
-              <Text style={styles.overviewLabel}>temps de récitation</Text>
-            </Card>
-            <Card style={styles.overviewCard}>
-              <Star color={colors.success} size={21} />
-              <Text style={styles.overviewValue}>{stats.totalSessions}</Text>
-              <Text style={styles.overviewLabel}>sessions terminées</Text>
-            </Card>
-          </View>
-
           <SectionHeader title="Badges" />
-          <View style={styles.badges}>
+          <ScrollView
+            contentContainerStyle={styles.badges}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+          >
             {badges.map((badge) => {
               const unlocked = stats.badges.includes(badge.id);
               const definition = badgeById[badge.id];
@@ -152,6 +238,7 @@ export default function StatsScreen() {
                     )}
                   </View>
                   <Text
+                    numberOfLines={1}
                     style={[
                       styles.badgeTitle,
                       !unlocked && styles.badgeTextLocked,
@@ -159,13 +246,13 @@ export default function StatsScreen() {
                   >
                     {definition.title}
                   </Text>
-                  <Text style={styles.badgeDescription}>
+                  <Text numberOfLines={2} style={styles.badgeDescription}>
                     {definition.description}
                   </Text>
                 </View>
               );
             })}
-          </View>
+          </ScrollView>
         </>
       )}
     </AppScreen>
@@ -173,28 +260,57 @@ export default function StatsScreen() {
 }
 
 const styles = StyleSheet.create({
-  statsRow: {
+  globalCard: {
+    padding: spacing.lg,
+  },
+  globalTitle: {
+    color: colors.text,
+    fontFamily: typography.extraBold,
+    fontSize: 17,
+    marginBottom: spacing.lg,
+  },
+  globalContent: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.lg,
+  },
+  globalMetrics: {
+    flex: 1,
+    gap: spacing.md,
+  },
+  globalMetric: {
+    alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.sm,
   },
-  levelCard: {
-    marginTop: spacing.sm,
+  globalValue: {
+    color: colors.text,
+    fontFamily: typography.extraBold,
+    fontSize: 16,
+  },
+  globalLabel: {
+    color: colors.textMuted,
+    fontFamily: typography.medium,
+    fontSize: 10,
+  },
+  levelDivider: {
+    backgroundColor: colors.border,
+    height: 1,
+    marginVertical: spacing.lg,
   },
   levelHeader: {
     alignItems: 'center',
     flexDirection: 'row',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   levelBadge: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.12)',
-    borderColor: colors.border,
+    backgroundColor: 'rgba(212,163,115,0.12)',
     borderRadius: radius.md,
-    borderWidth: 1,
-    height: 60,
+    height: 44,
     justifyContent: 'center',
     marginRight: spacing.md,
-    width: 60,
+    width: 44,
   },
   levelCopy: {
     flex: 1,
@@ -202,33 +318,20 @@ const styles = StyleSheet.create({
   levelKicker: {
     color: colors.gold,
     fontFamily: typography.extraBold,
-    fontSize: 11,
+    fontSize: 10,
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
   levelName: {
     color: colors.text,
-    fontFamily: typography.extraBold,
-    fontSize: 21,
-    marginTop: 1,
-  },
-  levelArabic: {
-    color: colors.textMuted,
-    fontFamily: typography.arabic,
-    fontSize: 18,
-  },
-  xpBlock: {
-    alignItems: 'flex-end',
+    fontFamily: typography.bold,
+    fontSize: 15,
+    marginTop: 2,
   },
   xpValue: {
-    color: colors.text,
+    color: colors.goldSoft,
     fontFamily: typography.extraBold,
-    fontSize: 22,
-  },
-  xpLabel: {
-    color: colors.textMuted,
-    fontFamily: typography.medium,
-    fontSize: 11,
+    fontSize: 14,
   },
   levelFoot: {
     color: colors.textMuted,
@@ -237,17 +340,52 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     textAlign: 'right',
   },
+  rangePills: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  activitySummary: {
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    marginBottom: spacing.md,
+    paddingBottom: spacing.md,
+  },
+  activityMetric: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  activityValue: {
+    color: colors.text,
+    fontFamily: typography.extraBold,
+    fontSize: 18,
+  },
+  activityLabel: {
+    color: colors.textMuted,
+    fontFamily: typography.medium,
+    fontSize: 10,
+    marginTop: 2,
+  },
   chart: {
     alignItems: 'flex-end',
     flexDirection: 'row',
     height: 170,
     justifyContent: 'space-between',
+    width: '100%',
+  },
+  chartThirty: {
+    gap: 3,
+    minWidth: 720,
   },
   barColumn: {
     alignItems: 'center',
     flex: 1,
     height: '100%',
     justifyContent: 'flex-end',
+  },
+  barColumnThirty: {
+    flex: 0,
+    width: 21,
   },
   barValue: {
     color: colors.gold,
@@ -274,30 +412,9 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: spacing.sm,
   },
-  overviewGrid: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  overviewCard: {
-    flex: 1,
-    padding: spacing.md,
-  },
-  overviewValue: {
-    color: colors.text,
-    fontFamily: typography.extraBold,
-    fontSize: 22,
-    marginTop: spacing.sm,
-  },
-  overviewLabel: {
-    color: colors.textMuted,
-    fontFamily: typography.medium,
-    fontSize: 11,
-    marginTop: 2,
-  },
   badges: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing.sm,
+    paddingRight: spacing.lg,
   },
   badge: {
     alignItems: 'center',
@@ -305,8 +422,9 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.md,
     borderWidth: 1,
+    minHeight: 150,
     padding: spacing.md,
-    width: '48.5%',
+    width: 150,
   },
   badgeLocked: {
     opacity: 0.56,
@@ -320,7 +438,7 @@ const styles = StyleSheet.create({
     width: 48,
   },
   badgeIconUnlocked: {
-    backgroundColor: 'rgba(212,175,55,0.15)',
+    backgroundColor: 'rgba(212,163,115,0.15)',
     borderColor: colors.gold,
     borderWidth: 1,
   },

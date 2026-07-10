@@ -17,6 +17,19 @@ export function dayDifference(from: string, to: string) {
   return Math.round((end.getTime() - start.getTime()) / 86_400_000);
 }
 
+export function monthKey(date = new Date()) {
+  return dateKey(date).slice(0, 7);
+}
+
+export function weekStartKey(date = new Date()) {
+  const result = new Date(date);
+  result.setHours(12, 0, 0, 0);
+  const day = result.getDay();
+  const daysSinceMonday = day === 0 ? 6 : day - 1;
+  result.setDate(result.getDate() - daysSinceMonday);
+  return dateKey(result);
+}
+
 export function formatDuration(seconds: number) {
   const minutes = Math.max(1, Math.round(seconds / 60));
   return `${minutes} min`;

@@ -1,11 +1,21 @@
 import { Platform } from 'react-native';
+import * as Notifications from 'expo-notifications';
 
-const REMINDER_ID_KEY = 'quran-daily-reminder';
+import { buildReminderPlan, REMINDER_ID_PREFIX } from '@/utils/reminders';
+
+const LEGACY_REMINDER_ID = 'quran-daily-reminder';
+const DAILY_CHANNEL_ID = 'daily-reminders';
+const STREAK_CHANNEL_ID = 'streak-alerts';
 let notificationHandlerConfigured = false;
+let notificationQueue: Promise<void> = Promise.resolve();
 
-async function loadNotifications() {
-  const Notifications = await import('expo-notifications');
+export interface SmartReminderInput {
+  time: string;
+  currentStreak: number;
+  completedDates: readonly string[];
+}
 
+function ensureNotificationHandler() {
   if (!notificationHandlerConfigured) {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
@@ -17,50 +27,102 @@ async function loadNotifications() {
     });
     notificationHandlerConfigured = true;
   }
-
-  return Notifications;
 }
 
-export async function configureDailyReminder(time: string) {
-  if (Platform.OS === 'web') return false;
-
-  const Notifications = await loadNotifications();
-
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('daily-reminders', {
+async function ensureAndroidChannels() {
+  if (Platform.OS !== 'android') return;
+  await Promise.all([
+    Notifications.setNotificationChannelAsync(DAILY_CHANNEL_ID, {
       name: 'Rappels quotidiens',
       importance: Notifications.AndroidImportance.DEFAULT,
-      lightColor: '#D4AF37',
-    });
-  }
+      lightColor: '#D4A373',
+    }),
+    Notifications.setNotificationChannelAsync(STREAK_CHANNEL_ID, {
+      name: 'Protection du streak',
+      importance: Notifications.AndroidImportance.HIGH,
+      lightColor: '#D4A373',
+    }),
+  ]);
+}
 
+async function hasNotificationPermission(requestPermission: boolean) {
   const current = await Notifications.getPermissionsAsync();
-  const permission =
-    current.status === 'granted' ? current : await Notifications.requestPermissionsAsync();
-  if (permission.status !== 'granted') return false;
+  if (current.status === 'granted') return true;
+  if (!requestPermission) return false;
+  const requested = await Notifications.requestPermissionsAsync();
+  return requested.status === 'granted';
+}
 
-  await cancelDailyReminder();
-  const [hour, minute] = time.split(':').map(Number);
-  await Notifications.scheduleNotificationAsync({
-    identifier: REMINDER_ID_KEY,
-    content: {
-      title: 'Ta session du jour t’attend',
-      body: 'Cinq minutes pour réciter, apprendre et garder ton élan.',
-      data: { url: '/(tabs)' },
-    },
-    trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.DAILY,
-      hour,
-      minute,
-      channelId: Platform.OS === 'android' ? 'daily-reminders' : undefined,
-    },
-  });
+function enqueueNotificationOperation<T>(operation: () => Promise<T>) {
+  const result = notificationQueue.then(operation, operation);
+  notificationQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+async function cancelSmartRemindersNow() {
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  const identifiers = scheduled
+    .map((notification) => notification.identifier)
+    .filter(
+      (identifier) =>
+        identifier === LEGACY_REMINDER_ID || identifier.startsWith(REMINDER_ID_PREFIX),
+    );
+  await Promise.all(
+    identifiers.map((identifier) =>
+      Notifications.cancelScheduledNotificationAsync(identifier).catch(() => undefined),
+    ),
+  );
+}
+
+async function replaceSmartReminderSchedule(
+  input: SmartReminderInput,
+  requestPermission: boolean,
+) {
+  if (Platform.OS === 'web') return false;
+  ensureNotificationHandler();
+  await ensureAndroidChannels();
+  if (!(await hasNotificationPermission(requestPermission))) return false;
+
+  await cancelSmartRemindersNow();
+  const plan = buildReminderPlan(input);
+  await Promise.all(
+    plan.map((item) =>
+      Notifications.scheduleNotificationAsync({
+        identifier: item.id,
+        content: {
+          title: item.title,
+          body: item.body,
+          data: { url: '/(tabs)', kind: item.kind },
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: item.date,
+          channelId:
+            Platform.OS === 'android'
+              ? item.kind === 'streak'
+                ? STREAK_CHANNEL_ID
+                : DAILY_CHANNEL_ID
+              : undefined,
+        },
+      }),
+    ),
+  );
   return true;
 }
 
-export async function cancelDailyReminder() {
-  if (Platform.OS === 'web') return;
+export async function enableSmartReminders(input: SmartReminderInput) {
+  return enqueueNotificationOperation(() => replaceSmartReminderSchedule(input, true));
+}
 
-  const Notifications = await loadNotifications();
-  await Notifications.cancelScheduledNotificationAsync(REMINDER_ID_KEY).catch(() => undefined);
+export async function syncSmartReminders(input: SmartReminderInput) {
+  return enqueueNotificationOperation(() => replaceSmartReminderSchedule(input, false));
+}
+
+export async function cancelSmartReminders() {
+  if (Platform.OS === 'web') return;
+  ensureNotificationHandler();
+  return enqueueNotificationOperation(cancelSmartRemindersNow);
 }

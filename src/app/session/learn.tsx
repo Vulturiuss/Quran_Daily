@@ -1,8 +1,16 @@
-import { useEffect } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Check, ChevronRight, GraduationCap, Sparkles, X } from 'lucide-react-native';
+import {
+  Check,
+  ChevronRight,
+  EyeOff,
+  GraduationCap,
+  RotateCcw,
+  Sparkles,
+  X,
+} from 'lucide-react-native';
 
 import { AppScreen } from '@/components/AppScreen';
 import { VerseAudioButton } from '@/components/VerseAudioButton';
@@ -15,6 +23,7 @@ import { useQuranStore } from '@/store/useQuranStore';
 import { colors, spacing, typography } from '@/theme';
 
 export default function LearnSessionScreen() {
+  const [mode, setMode] = useState<'study' | 'test'>('study');
   const session = useQuranStore((state) => state.activeSession);
   const learnCurrentVerse = useQuranStore((state) => state.learnCurrentVerse);
   const clearActiveSession = useQuranStore((state) => state.clearActiveSession);
@@ -29,6 +38,10 @@ export default function LearnSessionScreen() {
   useEffect(() => {
     if (!session) router.replace('/(tabs)');
   }, [session]);
+
+  useEffect(() => {
+    setMode('study');
+  }, [verse?.verseKey]);
 
   async function validate() {
     await stop();
@@ -59,8 +72,14 @@ export default function LearnSessionScreen() {
 
   if (!session) return null;
 
+  const hasVerse = Boolean(surah && verse);
+
   return (
-    <AppScreen>
+    <AppScreen
+      contentStyle={styles.screen}
+      decorated={false}
+      scroll={false}
+    >
       <View style={styles.header}>
         <View>
           <Text style={styles.kicker}>Apprentissage</Text>
@@ -72,52 +91,94 @@ export default function LearnSessionScreen() {
       </View>
       <ProgressBar value={target ? learned / target : 1} height={6} />
 
-      {surah && verse ? (
-        <>
-          <View style={styles.surahHeader}>
-            <Text style={styles.surahName}>{surah.nameTranslit}</Text>
-            <Text style={styles.verseLabel}>Verset {verse.verseNumber}</Text>
-          </View>
-          <VerseCard key={verse.verseNumber} verse={verse} showToggle />
-          <View style={styles.audioActions}>
-            <VerseAudioButton repeatCount={3} verse={verse} />
-          </View>
-          {audioError ? <Text style={styles.audioError}>{audioError}</Text> : null}
-          <Card style={styles.tip}>
-            <Sparkles color={colors.gold} size={19} />
-            <Text style={styles.tipText}>
-              Lis trois fois, masque le texte, puis récite lentement avant de valider.
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        style={styles.scroll}
+      >
+        {surah && verse ? (
+          <>
+            <View style={styles.surahHeader}>
+              <Text style={styles.surahName}>{surah.nameTranslit}</Text>
+              <Text style={styles.verseLabel}>Verset {verse.verseNumber}</Text>
+            </View>
+            <VerseCard
+              key={`${verse.verseKey}:${mode}`}
+              verse={verse}
+              testMode={mode === 'test'}
+              showToggle={mode === 'test'}
+            />
+            <View style={styles.audioActions}>
+              <VerseAudioButton repeatCount={3} verse={verse} />
+            </View>
+            {audioError ? <Text style={styles.audioError}>{audioError}</Text> : null}
+            <Card style={styles.tip}>
+              <Sparkles color={colors.gold} size={19} />
+              <Text style={styles.tipText}>
+                {mode === 'study'
+                  ? 'Lis et écoute trois fois. Passe ensuite au test sans regarder le texte.'
+                  : 'Récite maintenant de mémoire. Révèle le texte seulement pour te corriger.'}
+              </Text>
+            </Card>
+          </>
+        ) : (
+          <Card style={styles.empty}>
+            <GraduationCap color={colors.gold} size={42} />
+            <Text style={styles.emptyTitle}>
+              {surah ? 'Contenu hors ligne indisponible' : 'Choisis une sourate'}
+            </Text>
+            <Text style={styles.emptyText}>
+              {surah
+                ? `La session de révision est terminée. Le texte de ${surah.nameTranslit} sera récupéré lors de la synchronisation.`
+                : 'Sélectionne une sourate dans la bibliothèque pour activer l’apprentissage guidé.'}
             </Text>
           </Card>
-          <PrimaryButton
-            icon={learned + 1 >= target ? Check : ChevronRight}
-            label={learned + 1 >= target ? 'Je peux le réciter' : 'Verset mémorisé'}
-            onPress={() => void validate()}
-          />
-        </>
-      ) : (
-        <Card style={styles.empty}>
-          <GraduationCap color={colors.gold} size={42} />
-          <Text style={styles.emptyTitle}>
-            {surah ? 'Contenu hors ligne indisponible' : 'Choisis une sourate'}
-          </Text>
-          <Text style={styles.emptyText}>
-            {surah
-              ? `La session de révision est terminée. Le texte de ${surah.nameTranslit} sera récupéré lors de la synchronisation.`
-              : 'Sélectionne une sourate dans la bibliothèque pour activer l’apprentissage guidé.'}
-          </Text>
+        )}
+      </ScrollView>
+
+      <View style={styles.footer}>
+        {hasVerse ? (
+          mode === 'study' ? (
+            <PrimaryButton
+              icon={EyeOff}
+              label="Tester ma mémoire"
+              onPress={() => {
+                void stop();
+                setMode('test');
+              }}
+            />
+          ) : (
+            <View style={styles.testActions}>
+              <PrimaryButton
+                icon={learned + 1 >= target ? Check : ChevronRight}
+                label={learned + 1 >= target ? 'Je peux le réciter' : 'Verset mémorisé'}
+                onPress={() => void validate()}
+              />
+              <PrimaryButton
+                compact
+                icon={RotateCcw}
+                label="Revoir le verset"
+                onPress={() => setMode('study')}
+                variant="ghost"
+              />
+            </View>
+          )
+        ) : (
           <PrimaryButton
             icon={ChevronRight}
             label="Terminer la session"
             onPress={() => void continueWithoutVerse()}
           />
-        </Card>
-      )}
+        )}
+      </View>
     </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    paddingBottom: spacing.md,
+  },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -138,9 +199,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: spacing.md,
+  },
   surahHeader: {
     alignItems: 'center',
-    marginVertical: spacing.xl,
+    marginVertical: spacing.lg,
   },
   surahName: {
     color: colors.text,
@@ -157,7 +224,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     flexDirection: 'row',
     gap: spacing.md,
-    marginBottom: spacing.md,
     marginTop: spacing.md,
     padding: spacing.md,
   },
@@ -179,6 +245,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+  footer: {
+    backgroundColor: colors.backgroundDeep,
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    paddingTop: spacing.md,
+  },
+  testActions: {
+    gap: spacing.sm,
+  },
   empty: {
     alignItems: 'center',
     marginTop: spacing.xl,
@@ -196,7 +271,6 @@ const styles = StyleSheet.create({
     fontFamily: typography.regular,
     fontSize: 13,
     lineHeight: 20,
-    marginBottom: spacing.lg,
     marginTop: spacing.sm,
     maxWidth: 300,
     textAlign: 'center',

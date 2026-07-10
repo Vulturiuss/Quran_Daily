@@ -15,6 +15,7 @@ import {
   LogOut,
   RefreshCw,
   ShieldCheck,
+  Trash2,
 } from 'lucide-react-native';
 
 import { AppScreen } from '@/components/AppScreen';
@@ -28,6 +29,7 @@ import {
 import { useCloud } from '@/providers/CloudProvider';
 import { useQuranStore } from '@/store/useQuranStore';
 import { colors, radius, spacing, typography } from '@/theme';
+import { goBackOrReplace } from '@/utils/navigation';
 
 const statusLabels = {
   disabled: 'Mode local',
@@ -49,12 +51,13 @@ export default function AccountScreen() {
     signIn,
     signUp,
     signOut,
+    deleteAccount,
     syncNow,
   } = useCloud();
   const syncMeta = useQuranStore((state) => state.syncMeta);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState<'signin' | 'signup' | 'signout'>();
+  const [busy, setBusy] = useState<'signin' | 'signup' | 'signout' | 'delete'>();
   const [formError, setFormError] = useState<string>();
 
   async function authenticate(mode: 'signin' | 'signup') {
@@ -90,6 +93,33 @@ export default function AccountScreen() {
     if (result.error) setFormError(result.error);
   }
 
+  async function removeAccount() {
+    setBusy('delete');
+    setFormError(undefined);
+    const result = await deleteAccount();
+    setBusy(undefined);
+    if (result.error) {
+      setFormError(result.error);
+      return;
+    }
+    router.replace('/onboarding');
+  }
+
+  function confirmDeleteAccount() {
+    Alert.alert(
+      'Supprimer définitivement le compte ?',
+      'Le compte Supabase, la progression synchronisée et les données locales seront effacés. Un abonnement Apple ou Google doit être annulé séparément dans le store.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer mon compte',
+          style: 'destructive',
+          onPress: () => void removeAccount(),
+        },
+      ],
+    );
+  }
+
   const lastSync = syncMeta.lastSyncedAt
     ? new Date(syncMeta.lastSyncedAt).toLocaleString('fr-FR')
     : 'Jamais';
@@ -103,7 +133,7 @@ export default function AccountScreen() {
           <IconButton
             icon={ArrowLeft}
             label="Retour"
-            onPress={() => router.back()}
+            onPress={() => goBackOrReplace('/settings')}
           />
         }
       />
@@ -183,13 +213,21 @@ export default function AccountScreen() {
               onPress={() => void disconnect()}
               variant="ghost"
             />
+            <PrimaryButton
+              disabled={!online || status === 'syncing'}
+              icon={Trash2}
+              label="Supprimer définitivement le compte"
+              loading={busy === 'delete'}
+              onPress={confirmDeleteAccount}
+              variant="danger"
+            />
           </View>
 
           <View style={styles.privacy}>
             <ShieldCheck color={colors.success} size={19} />
             <Text style={styles.privacyText}>
-              La déconnexion ne supprime pas les sourates ni la progression stockées sur cet
-              appareil.
+              La déconnexion conserve les données locales. La suppression du compte efface les
+              données cloud et locales, mais n’annule pas un abonnement du store.
             </Text>
           </View>
         </>
@@ -259,7 +297,7 @@ const styles = StyleSheet.create({
   },
   iconBox: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.12)',
+    backgroundColor: 'rgba(212,163,115,0.12)',
     borderRadius: radius.md,
     height: 50,
     justifyContent: 'center',

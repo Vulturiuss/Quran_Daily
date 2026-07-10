@@ -9,17 +9,26 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      },
       "bundleIdentifier": "com.qurandaily.app"
     },
     "android": {
       "permissions": [
         "com.android.vending.BILLING"
       ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png",
-        "backgroundColor": "#10251B"
+        "backgroundColor": "#134E4A"
       },
       "package": "com.qurandaily.app"
     },
@@ -32,7 +41,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#10251B",
+          "backgroundColor": "#134E4A",
           "image": "./assets/quran-daily-icon.png",
           "imageWidth": 180,
           "resizeMode": "contain"
@@ -41,16 +50,31 @@
       [
         "expo-notifications",
         {
-          "color": "#D4AF37",
+          "color": "#D4A373",
           "defaultChannel": "daily-reminders"
         }
       ],
       "expo-font",
-      "expo-audio",
-      "expo-asset"
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundRecording": false,
+          "enableBackgroundPlayback": false
+        }
+      ],
+      "expo-asset",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c956203b-282d-4a75-99dd-a4b85369e589"
+      }
     }
   }
 }

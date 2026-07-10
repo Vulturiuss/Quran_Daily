@@ -6,18 +6,24 @@ import {
   ChevronRight,
   Clock3,
   Crown,
+  FileText,
   Headphones,
   RotateCcw,
+  Scale,
   ShieldCheck,
   Target,
   UserRound,
+  Users,
 } from 'lucide-react-native';
 
 import { AppScreen } from '@/components/AppScreen';
+import { VerseAudioButton } from '@/components/VerseAudioButton';
 import { Card, Pill, PrimaryButton, ScreenTitle, SectionHeader } from '@/components/ui';
+import { getVerse } from '@/data/verses';
 import { useCloud } from '@/providers/CloudProvider';
+import { useFamily } from '@/providers/FamilyProvider';
 import { useSubscription } from '@/providers/SubscriptionProvider';
-import { cancelDailyReminder, configureDailyReminder } from '@/services/notifications';
+import { cancelSmartReminders, enableSmartReminders } from '@/services/notifications';
 import { reciters } from '@/services/quranApi';
 import { useQuranStore } from '@/store/useQuranStore';
 import { colors, radius, spacing, typography } from '@/theme';
@@ -32,22 +38,37 @@ const reminderTimes = ['07:00', '12:30', '20:00', '22:00'];
 const reciterOptions = Object.entries(reciters).map(([id, reciter]) => ({
   id,
   label: reciter.name,
+  style: reciter.style,
 }));
+const previewVerse = getVerse(1, 1);
 
 export default function SettingsScreen() {
   const profile = useQuranStore((state) => state.profile);
+  const currentStreak = useQuranStore((state) => state.stats.currentStreak);
+  const freezeCount = useQuranStore((state) => state.stats.freezeCount);
+  const history = useQuranStore((state) => state.history);
   const updateProfile = useQuranStore((state) => state.updateProfile);
   const resetApp = useQuranStore((state) => state.resetApp);
-  const { configured, session, status } = useCloud();
+  const { configured, session, status, resetLocalData } = useCloud();
+  const { context: familyContext } = useFamily();
   const {
     configured: revenueCatConfigured,
     isPremium,
     isFamily,
-    loading: subscriptionLoading,
   } = useSubscription();
-  const hasFullAccess =
-    !revenueCatConfigured || subscriptionLoading || isPremium;
+  const hasFullAccess = !revenueCatConfigured || isPremium;
   const [busy, setBusy] = useState(false);
+  const [showAllReciters, setShowAllReciters] = useState(false);
+  const visibleReciters = showAllReciters
+    ? reciterOptions
+    : [
+        ...reciterOptions.filter(
+          (reciter) => reciter.id === profile.preferredReciter,
+        ),
+        ...reciterOptions.filter(
+          (reciter) => reciter.id !== profile.preferredReciter,
+        ),
+      ].slice(0, 2);
   const accountLabel = session
     ? status === 'synced'
       ? 'Compte synchronisé'
@@ -59,11 +80,15 @@ export default function SettingsScreen() {
   async function toggleNotifications(enabled: boolean) {
     setBusy(true);
     if (enabled) {
-      const granted = await configureDailyReminder(profile.notificationTime).catch(() => false);
+      const granted = await enableSmartReminders({
+        time: profile.notificationTime,
+        currentStreak,
+        completedDates: history.map((record) => record.date),
+      }).catch(() => false);
       updateProfile({ notificationsEnabled: granted });
       if (!granted) Alert.alert('Notifications non activées', 'La permission a été refusée sur cet appareil.');
     } else {
-      await cancelDailyReminder();
+      await cancelSmartReminders();
       updateProfile({ notificationsEnabled: false });
     }
     setBusy(false);
@@ -72,26 +97,40 @@ export default function SettingsScreen() {
   async function changeTime(time: string) {
     updateProfile({ notificationTime: time });
     if (profile.notificationsEnabled) {
-      await configureDailyReminder(time).catch(() => undefined);
+      await enableSmartReminders({
+        time,
+        currentStreak,
+        completedDates: history.map((record) => record.date),
+      }).catch(() => undefined);
     }
   }
 
   function confirmReset() {
     Alert.alert(
       'Recommencer l’onboarding ?',
-      'La progression locale, le streak et les statistiques seront effacés.',
+      session
+        ? 'La progression locale sera effacée et le compte sera déconnecté. La sauvegarde cloud restera disponible après reconnexion.'
+        : 'La progression locale, le streak et les statistiques seront effacés.',
       [
         { text: 'Annuler', style: 'cancel' },
         {
           text: 'Effacer',
           style: 'destructive',
-          onPress: () => {
-            resetApp();
-            router.replace('/onboarding');
-          },
+          onPress: () => void performReset(),
         },
       ],
     );
+  }
+
+  async function performReset() {
+    setBusy(true);
+    const result = session ? await resetLocalData() : (resetApp(), {});
+    setBusy(false);
+    if ('error' in result && result.error) {
+      Alert.alert('Réinitialisation impossible', result.error);
+      return;
+    }
+    router.replace('/onboarding');
   }
 
   return (
@@ -158,13 +197,15 @@ export default function SettingsScreen() {
           </View>
           <View style={styles.settingCopy}>
             <Text style={styles.settingTitle}>Notification quotidienne</Text>
-            <Text style={styles.settingText}>Un rappel local, sans collecte de données.</Text>
+            <Text style={styles.settingText}>
+              Rappel rotatif et alerte streak à 22 h, sans collecte de données.
+            </Text>
           </View>
           <Switch
             disabled={busy}
             onValueChange={toggleNotifications}
             thumbColor={profile.notificationsEnabled ? colors.gold : colors.textFaint}
-            trackColor={{ false: colors.surfaceElevated, true: 'rgba(212,175,55,0.35)' }}
+            trackColor={{ false: colors.surfaceElevated, true: 'rgba(212,163,115,0.35)' }}
             value={profile.notificationsEnabled}
           />
         </View>
@@ -186,6 +227,19 @@ export default function SettingsScreen() {
             </View>
           </View>
         ) : null}
+        <View style={styles.settingDivider} />
+        <View style={styles.switchRow}>
+          <View style={[styles.settingIcon, styles.freezeIcon]}>
+            <ShieldCheck color={colors.success} size={21} />
+          </View>
+          <View style={styles.settingCopy}>
+            <Text style={styles.settingTitle}>Protection automatique du streak</Text>
+            <Text style={styles.settingText}>
+              {freezeCount} disponible{freezeCount > 1 ? 's' : ''} · recharge mensuelle à{' '}
+              {isPremium ? 3 : 1}.
+            </Text>
+          </View>
+        </View>
       </Card>
 
       <SectionHeader title="Récitateur" />
@@ -200,34 +254,99 @@ export default function SettingsScreen() {
           </View>
         </View>
         <View style={styles.reciters}>
-          {reciterOptions.map((reciter) => (
-            <Pressable
+          {visibleReciters.map((reciter) => (
+            <View
               key={reciter.id}
-              onPress={() => {
-                if (!hasFullAccess && reciter.id !== 'mishary') {
-                  router.push('/subscription');
-                  return;
-                }
-                updateProfile({ preferredReciter: reciter.id });
-              }}
               style={[
                 styles.reciter,
                 profile.preferredReciter === reciter.id && styles.reciterSelected,
               ]}
             >
-              <Text
-                style={[
-                  styles.reciterText,
-                  profile.preferredReciter === reciter.id && styles.reciterTextSelected,
-                ]}
+              <Pressable
+                accessibilityLabel={`${reciter.label}. ${reciter.style}${
+                  !hasFullAccess && reciter.id !== 'mishary'
+                    ? '. Réservé à Premium'
+                    : ''
+                }`}
+                accessibilityRole="radio"
+                accessibilityState={{
+                  selected: profile.preferredReciter === reciter.id,
+                }}
+                onPress={() => {
+                  if (!hasFullAccess && reciter.id !== 'mishary') {
+                    router.push('/subscription');
+                    return;
+                  }
+                  updateProfile({ preferredReciter: reciter.id });
+                }}
+                style={styles.reciterChoice}
               >
-                {reciter.label}
-                {!hasFullAccess && reciter.id !== 'mishary' ? ' · Premium' : ''}
-              </Text>
-            </Pressable>
+                <Text
+                  style={[
+                    styles.reciterText,
+                    profile.preferredReciter === reciter.id &&
+                      styles.reciterTextSelected,
+                  ]}
+                >
+                  {reciter.label}
+                  {!hasFullAccess && reciter.id !== 'mishary' ? ' · Premium' : ''}
+                </Text>
+                <Text style={styles.reciterMeta}>{reciter.style}</Text>
+              </Pressable>
+              {previewVerse && (hasFullAccess || reciter.id === 'mishary') ? (
+                <VerseAudioButton
+                  compact
+                  label="Aperçu"
+                  reciterId={reciter.id}
+                  verse={previewVerse}
+                />
+              ) : (
+                <Crown color={colors.textFaint} size={18} />
+              )}
+            </View>
           ))}
         </View>
+        {reciterOptions.length > 2 ? (
+          <PrimaryButton
+            compact
+            label={showAllReciters ? 'Réduire la liste' : 'Voir tous les récitants'}
+            onPress={() => setShowAllReciters((value) => !value)}
+            variant="ghost"
+          />
+        ) : null}
       </Card>
+
+      <SectionHeader title="Famille" />
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => router.push('/family' as never)}
+        style={({ pressed }) => pressed && styles.accountPressed}
+      >
+        <Card gradient style={styles.familyCard}>
+          <View style={styles.premiumIcon}>
+            <Users color={colors.gold} size={24} />
+          </View>
+          <View style={styles.settingCopy}>
+            <Text style={styles.settingTitle}>
+              {familyContext?.role === 'parent'
+                ? `${familyContext.childCount} enfant${familyContext.childCount > 1 ? 's' : ''} suivi${familyContext.childCount > 1 ? 's' : ''}`
+                : familyContext?.role === 'child'
+                  ? `Famille de ${familyContext.ownerDisplayName}`
+                  : isFamily
+                    ? 'Configurer mon espace familial'
+                    : 'Premium Famille'}
+            </Text>
+            <Text style={styles.settingText}>
+              {familyContext?.role === 'parent'
+                ? 'Consulte les parcours et invite un autre enfant.'
+                : familyContext?.role === 'child'
+                  ? 'Ton accès Premium est partagé par ton parent.'
+                  : 'Jusqu’à quatre enfants avec des progressions séparées.'}
+            </Text>
+          </View>
+          <ChevronRight color={colors.textFaint} size={20} />
+        </Card>
+      </Pressable>
 
       <SectionHeader title="Abonnement" />
       <Card gradient>
@@ -266,7 +385,30 @@ export default function SettingsScreen() {
         </Text>
       </View>
 
+      <Card style={styles.legalCard}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push('/privacy')}
+          style={({ pressed }) => [styles.legalRow, pressed && styles.accountPressed]}
+        >
+          <FileText color={colors.gold} size={20} />
+          <Text style={styles.legalText}>Politique de confidentialité</Text>
+          <ChevronRight color={colors.textFaint} size={18} />
+        </Pressable>
+        <View style={styles.legalDivider} />
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push('/terms')}
+          style={({ pressed }) => [styles.legalRow, pressed && styles.accountPressed]}
+        >
+          <Scale color={colors.gold} size={20} />
+          <Text style={styles.legalText}>Conditions d’utilisation</Text>
+          <ChevronRight color={colors.textFaint} size={18} />
+        </Pressable>
+      </Card>
+
       <PrimaryButton
+        disabled={busy}
         icon={RotateCcw}
         label="Réinitialiser l’application"
         onPress={confirmReset}
@@ -287,7 +429,7 @@ const styles = StyleSheet.create({
   },
   avatar: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.12)',
+    backgroundColor: 'rgba(212,163,115,0.12)',
     borderRadius: radius.pill,
     height: 52,
     justifyContent: 'center',
@@ -318,7 +460,7 @@ const styles = StyleSheet.create({
   },
   settingIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.1)',
+    backgroundColor: 'rgba(212,163,115,0.1)',
     borderRadius: radius.md,
     height: 44,
     justifyContent: 'center',
@@ -352,6 +494,14 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     paddingTop: spacing.md,
   },
+  settingDivider: {
+    backgroundColor: colors.border,
+    height: 1,
+    marginVertical: spacing.lg,
+  },
+  freezeIcon: {
+    backgroundColor: 'rgba(129,199,132,0.1)',
+  },
   timeLabel: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -364,16 +514,23 @@ const styles = StyleSheet.create({
   },
   reciters: {
     gap: spacing.sm,
+    marginBottom: spacing.md,
     marginTop: spacing.lg,
   },
   reciter: {
+    alignItems: 'center',
     borderColor: 'rgba(255,255,255,0.1)',
     borderRadius: radius.md,
     borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
     padding: spacing.md,
   },
+  reciterChoice: {
+    flex: 1,
+  },
   reciterSelected: {
-    backgroundColor: 'rgba(212,175,55,0.1)',
+    backgroundColor: 'rgba(212,163,115,0.1)',
     borderColor: colors.gold,
   },
   reciterText: {
@@ -384,14 +541,25 @@ const styles = StyleSheet.create({
   reciterTextSelected: {
     color: colors.goldSoft,
   },
+  reciterMeta: {
+    color: colors.textFaint,
+    fontFamily: typography.regular,
+    fontSize: 11,
+    marginTop: 2,
+  },
   premiumRow: {
     alignItems: 'center',
     flexDirection: 'row',
     marginBottom: spacing.lg,
   },
+  familyCard: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    padding: spacing.md,
+  },
   premiumIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,175,55,0.13)',
+    backgroundColor: 'rgba(212,163,115,0.13)',
     borderRadius: radius.md,
     height: 48,
     justifyContent: 'center',
@@ -415,5 +583,27 @@ const styles = StyleSheet.create({
     fontFamily: typography.medium,
     fontSize: 12,
     lineHeight: 18,
+  },
+  legalCard: {
+    marginBottom: spacing.lg,
+    padding: 0,
+  },
+  legalRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+    minHeight: 58,
+    paddingHorizontal: spacing.md,
+  },
+  legalText: {
+    color: colors.text,
+    flex: 1,
+    fontFamily: typography.bold,
+    fontSize: 14,
+  },
+  legalDivider: {
+    backgroundColor: colors.border,
+    height: 1,
+    marginHorizontal: spacing.md,
   },
 });
