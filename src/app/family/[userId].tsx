@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import {
@@ -25,11 +26,14 @@ import {
 } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
 import { useFamily } from '@/providers/FamilyProvider';
-import { colors, radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/ThemeProvider';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { goBackOrReplace } from '@/utils/navigation';
 import { buildActivitySeries } from '@/utils/statistics';
 
 export default function FamilyMemberScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const { context, members, loading } = useFamily();
   const member = members.find(
@@ -247,7 +251,8 @@ export default function FamilyMemberScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   centerCard: {
     alignItems: 'center',
     paddingVertical: spacing.xl,
@@ -271,7 +276,7 @@ const styles = StyleSheet.create({
   },
   avatar: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderRadius: radius.pill,
     height: 60,
     justifyContent: 'center',
@@ -307,14 +312,14 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   todayDone: {
-    borderColor: 'rgba(129,199,132,0.28)',
+    borderColor: withAlpha(colors.success, 0.28),
   },
   todayPending: {
-    borderColor: 'rgba(255,183,77,0.3)',
+    borderColor: withAlpha(colors.warning, 0.3),
   },
   todayIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: withAlpha(colors.white, 0.06),
     borderRadius: radius.md,
     height: 46,
     justifyContent: 'center',
@@ -367,7 +372,7 @@ const styles = StyleSheet.create({
   },
   learningIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.1)',
+    backgroundColor: withAlpha(colors.gold, 0.1),
     borderRadius: radius.md,
     height: 46,
     justifyContent: 'center',
@@ -412,7 +417,7 @@ const styles = StyleSheet.create({
     height: 17,
   },
   barTrack: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: withAlpha(colors.white, 0.05),
     borderRadius: radius.pill,
     height: 105,
     justifyContent: 'flex-end',
@@ -444,7 +449,7 @@ const styles = StyleSheet.create({
   },
   sessionIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.1)',
+    backgroundColor: withAlpha(colors.gold, 0.1),
     borderRadius: radius.pill,
     height: 38,
     justifyContent: 'center',
@@ -467,4 +472,5 @@ const styles = StyleSheet.create({
     fontFamily: typography.extraBold,
     fontSize: 12,
   },
-});
+  });
+}

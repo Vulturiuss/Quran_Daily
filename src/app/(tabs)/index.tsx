@@ -36,11 +36,16 @@ import { useSubscription } from '@/providers/SubscriptionProvider';
 import { useTheme } from '@/providers/ThemeProvider';
 import { FREE_SURAH_NUMBERS, isFreeSurah } from '@/services/subscription';
 import {
+  FREE_MAX_REVIEWS,
+  hasFullAccess as computeFullAccess,
+  sessionAccess,
+} from '@/utils/access';
+import {
   selectKnownCount,
   selectLearningProgress,
   useQuranStore,
 } from '@/store/useQuranStore';
-import { Palette, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { addDays, dateKey } from '@/utils/date';
 import { getLevelProgress } from '@/utils/gamification';
 import { buildSessionPreview } from '@/utils/sessionPlan';
@@ -56,7 +61,7 @@ export default function HomeScreen() {
   const startDailySession = useQuranStore((state) => state.startDailySession);
   const progress = useQuranStore((state) => state.progress);
   const { configured, isPremium } = useSubscription();
-  const hasFullAccess = !configured || isPremium;
+  const hasFullAccess = computeFullAccess(configured, isPremium);
   const todayRecord = history.find((record) => record.date === dateKey());
   const completedToday = Boolean(todayRecord);
   const learningSurah = getSurah(learningProgress?.surahNumber);
@@ -69,7 +74,9 @@ export default function HomeScreen() {
     progress,
     profile,
     new Date(),
-    hasFullAccess ? profile.dailyGoalReviews : Math.min(3, profile.dailyGoalReviews),
+    hasFullAccess
+      ? profile.dailyGoalReviews
+      : Math.min(FREE_MAX_REVIEWS, profile.dailyGoalReviews),
     hasFullAccess ? undefined : FREE_SURAH_NUMBERS,
   );
   const sessionIsEmpty =
@@ -96,19 +103,7 @@ export default function HomeScreen() {
     : 0;
 
   function startSession(isBonus = false) {
-    startDailySession(
-      hasFullAccess
-        ? {
-            isBonus,
-            freezeAllowance: 3,
-          }
-        : {
-            maxReviews: 3,
-            allowedSurahNumbers: FREE_SURAH_NUMBERS,
-            isBonus,
-            freezeAllowance: 1,
-          },
-    );
+    startDailySession(sessionAccess(hasFullAccess, isBonus));
     const session = useQuranStore.getState().activeSession;
     router.push(session?.reviewQueue.length ? '/session/review' : '/session/learn');
   }
@@ -338,7 +333,7 @@ function createStyles(colors: Palette) {
     padding: spacing.lg,
   },
   sessionGlow: {
-    backgroundColor: 'rgba(212,163,115,0.11)',
+    backgroundColor: withAlpha(colors.gold, 0.11),
     borderRadius: 120,
     height: 210,
     position: 'absolute',
@@ -366,7 +361,7 @@ function createStyles(colors: Palette) {
   },
   sessionIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderColor: colors.border,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -375,12 +370,12 @@ function createStyles(colors: Palette) {
     width: 56,
   },
   sessionIconDone: {
-    backgroundColor: 'rgba(129,199,132,0.12)',
-    borderColor: 'rgba(129,199,132,0.3)',
+    backgroundColor: withAlpha(colors.success, 0.12),
+    borderColor: withAlpha(colors.success, 0.3),
   },
   sessionDetails: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: withAlpha(colors.white, 0.04),
     borderRadius: radius.md,
     flexDirection: 'row',
     marginVertical: spacing.lg,
@@ -407,8 +402,8 @@ function createStyles(colors: Palette) {
     width: 1,
   },
   missionList: {
-    backgroundColor: 'rgba(5,21,14,0.42)',
-    borderColor: 'rgba(212,163,115,0.16)',
+    backgroundColor: colors.vignette,
+    borderColor: withAlpha(colors.gold, 0.16),
     borderRadius: radius.md,
     borderWidth: 1,
     marginVertical: spacing.lg,
@@ -422,7 +417,7 @@ function createStyles(colors: Palette) {
   },
   missionIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.1)',
+    backgroundColor: withAlpha(colors.gold, 0.1),
     borderColor: colors.border,
     borderRadius: radius.sm,
     borderWidth: 1,
@@ -484,7 +479,7 @@ function createStyles(colors: Palette) {
   },
   surahMark: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.1)',
+    backgroundColor: withAlpha(colors.gold, 0.1),
     borderRadius: radius.md,
     height: 46,
     justifyContent: 'center',

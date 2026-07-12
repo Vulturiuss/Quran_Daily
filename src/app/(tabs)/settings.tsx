@@ -28,7 +28,8 @@ import { useTheme } from '@/providers/ThemeProvider';
 import { cancelSmartReminders, enableSmartReminders } from '@/services/notifications';
 import { reciters } from '@/services/quranApi';
 import { useQuranStore } from '@/store/useQuranStore';
-import { Palette, radius, spacing, themeOptions, typography } from '@/theme';
+import { Palette, radius, spacing, themeOptions, typography, withAlpha } from '@/theme';
+import { hasFullAccess as computeFullAccess } from '@/utils/access';
 
 const goalOptions = [
   { minutes: 3 as const, reviews: 1, verses: 1 },
@@ -55,11 +56,11 @@ export default function SettingsScreen() {
   const { configured, session, status, resetLocalData } = useCloud();
   const { context: familyContext } = useFamily();
   const {
-    configured: revenueCatConfigured,
+    configured: subscriptionConfigured,
     isPremium,
     isFamily,
   } = useSubscription();
-  const hasFullAccess = !revenueCatConfigured || isPremium;
+  const hasFullAccess = computeFullAccess(subscriptionConfigured, isPremium);
   const [busy, setBusy] = useState(false);
   const [showAllReciters, setShowAllReciters] = useState(false);
   const visibleReciters = showAllReciters
@@ -208,7 +209,7 @@ export default function SettingsScreen() {
             disabled={busy}
             onValueChange={toggleNotifications}
             thumbColor={profile.notificationsEnabled ? colors.gold : colors.textFaint}
-            trackColor={{ false: colors.surfaceElevated, true: 'rgba(212,163,115,0.35)' }}
+            trackColor={{ false: colors.surfaceElevated, true: withAlpha(colors.gold, 0.35) }}
             value={profile.notificationsEnabled}
           />
         </View>
@@ -317,8 +318,8 @@ export default function SettingsScreen() {
             <Sparkles color={colors.gold} size={21} />
           </View>
           <View style={styles.settingCopy}>
-            <Text style={styles.settingTitle}>Couleur de l'application</Text>
-            <Text style={styles.settingText}>Change l'ambiance visuelle à tout moment.</Text>
+            <Text style={styles.settingTitle}>Couleur de l’application</Text>
+            <Text style={styles.settingText}>Change l’ambiance visuelle à tout moment.</Text>
           </View>
         </View>
         <View style={styles.pills}>
@@ -447,7 +448,7 @@ function createStyles(colors: Palette) {
   },
   avatar: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderRadius: radius.pill,
     height: 52,
     justifyContent: 'center',
@@ -478,7 +479,7 @@ function createStyles(colors: Palette) {
   },
   settingIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.1)',
+    backgroundColor: withAlpha(colors.gold, 0.1),
     borderRadius: radius.md,
     height: 44,
     justifyContent: 'center',
@@ -518,7 +519,7 @@ function createStyles(colors: Palette) {
     marginVertical: spacing.lg,
   },
   freezeIcon: {
-    backgroundColor: 'rgba(129,199,132,0.1)',
+    backgroundColor: withAlpha(colors.success, 0.1),
   },
   timeLabel: {
     alignItems: 'center',
@@ -537,7 +538,7 @@ function createStyles(colors: Palette) {
   },
   reciter: {
     alignItems: 'center',
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: withAlpha(colors.white, 0.1),
     borderRadius: radius.md,
     borderWidth: 1,
     flexDirection: 'row',
@@ -548,7 +549,7 @@ function createStyles(colors: Palette) {
     flex: 1,
   },
   reciterSelected: {
-    backgroundColor: 'rgba(212,163,115,0.1)',
+    backgroundColor: withAlpha(colors.gold, 0.1),
     borderColor: colors.gold,
   },
   reciterText: {
@@ -577,7 +578,7 @@ function createStyles(colors: Palette) {
   },
   premiumIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.13)',
+    backgroundColor: withAlpha(colors.gold, 0.13),
     borderRadius: radius.md,
     height: 48,
     justifyContent: 'center',
@@ -586,8 +587,8 @@ function createStyles(colors: Palette) {
   },
   infoRow: {
     alignItems: 'center',
-    backgroundColor: 'rgba(129,199,132,0.08)',
-    borderColor: 'rgba(129,199,132,0.22)',
+    backgroundColor: withAlpha(colors.success, 0.08),
+    borderColor: withAlpha(colors.success, 0.22),
     borderRadius: radius.md,
     borderWidth: 1,
     flexDirection: 'row',

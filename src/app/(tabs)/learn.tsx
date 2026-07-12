@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
@@ -21,18 +22,25 @@ import { Card, Eyebrow, PrimaryButton, ProgressBar, ScreenTitle, SectionHeader }
 import { getSurah } from '@/data/surahs';
 import { getVerses } from '@/data/verses';
 import { useSubscription } from '@/providers/SubscriptionProvider';
-import { FREE_SURAH_NUMBERS, isFreeSurah } from '@/services/subscription';
+import { useTheme } from '@/providers/ThemeProvider';
+import { isFreeSurah } from '@/services/subscription';
+import {
+  hasFullAccess as computeFullAccess,
+  sessionAccess,
+} from '@/utils/access';
 import { selectLearningProgress, useQuranStore } from '@/store/useQuranStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 
 export default function LearnScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const learning = useQuranStore(selectLearningProgress);
   const profile = useQuranStore((state) => state.profile);
   const startDailySession = useQuranStore((state) => state.startDailySession);
   const removeFromLearningQueue = useQuranStore((state) => state.removeFromLearningQueue);
   const reorderLearningQueue = useQuranStore((state) => state.reorderLearningQueue);
   const { configured, isPremium } = useSubscription();
-  const hasFullAccess = !configured || isPremium;
+  const hasFullAccess = computeFullAccess(configured, isPremium);
   const surah = getSurah(learning?.surahNumber);
   const verses = getVerses(learning?.surahNumber);
   const nextVerse = verses[learning?.versesLearned ?? 0];
@@ -46,15 +54,7 @@ export default function LearnScreen() {
       router.push(`/subscription?surah=${surah.number}` as never);
       return;
     }
-    startDailySession(
-      hasFullAccess
-        ? { freezeAllowance: 3 }
-        : {
-            maxReviews: 3,
-            allowedSurahNumbers: FREE_SURAH_NUMBERS,
-            freezeAllowance: 1,
-          },
-    );
+    startDailySession(sessionAccess(hasFullAccess));
     const session = useQuranStore.getState().activeSession;
     router.push(session?.reviewQueue.length ? '/session/review' : '/session/learn');
   }
@@ -236,7 +236,8 @@ export default function LearnScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   switchSurahLink: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -371,7 +372,7 @@ const styles = StyleSheet.create({
   },
   goalItem: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: withAlpha(colors.white, 0.05),
     borderRadius: radius.md,
     flex: 1,
     flexDirection: 'row',
@@ -392,7 +393,7 @@ const styles = StyleSheet.create({
   },
   ritualIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.1)',
+    backgroundColor: withAlpha(colors.gold, 0.1),
     borderRadius: radius.pill,
     height: 40,
     justifyContent: 'center',
@@ -421,4 +422,5 @@ const styles = StyleSheet.create({
     marginVertical: 2,
     width: 1,
   },
-});
+  });
+}

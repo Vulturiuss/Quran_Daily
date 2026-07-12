@@ -1,10 +1,12 @@
+import { useMemo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
 import { Check, Pause, Play, Repeat2 } from 'lucide-react-native';
 
 import { useQuranAudio } from '@/providers/AudioProvider';
 import { useSubscription } from '@/providers/SubscriptionProvider';
+import { useTheme } from '@/providers/ThemeProvider';
 import { useQuranStore } from '@/store/useQuranStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { Verse } from '@/types';
 
 export function VerseAudioButton({
@@ -20,6 +22,8 @@ export function VerseAudioButton({
   reciterId?: string;
   label?: string;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const preferredReciter = useQuranStore((state) => state.profile.preferredReciter);
   const {
     configured,
@@ -64,7 +68,10 @@ export function VerseAudioButton({
           : label ?? `Écouter le verset ${verse.verseNumber}`
       }
       accessibilityRole="button"
-      disabled={loading || repeatCompleted}
+      // Only the loading state blocks a press. Disabling on `repeatCompleted`
+      // locked the button for good: playVerse is the only thing that clears the
+      // completed marker, so the verse being learned could never be replayed.
+      disabled={loading}
       onPress={() => void playVerse(verse, reciterId, repeatCount)}
       style={({ pressed }) => [
         styles.button,
@@ -95,10 +102,11 @@ export function VerseAudioButton({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   button: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.1)',
+    backgroundColor: withAlpha(colors.gold, 0.1),
     borderColor: colors.border,
     borderRadius: radius.pill,
     borderWidth: 1,
@@ -115,8 +123,8 @@ const styles = StyleSheet.create({
     opacity: 0.72,
   },
   completed: {
-    backgroundColor: 'rgba(129,199,132,0.1)',
-    borderColor: 'rgba(129,199,132,0.35)',
+    backgroundColor: withAlpha(colors.success, 0.1),
+    borderColor: withAlpha(colors.success, 0.35),
   },
   label: {
     color: colors.gold,
@@ -126,4 +134,5 @@ const styles = StyleSheet.create({
   completedLabel: {
     color: colors.success,
   },
-});
+  });
+}

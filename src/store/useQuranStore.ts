@@ -29,7 +29,7 @@ import {
   appendSessionEntry,
   normalizeSessionRecord,
 } from '@/utils/sessionHistory';
-import { calculateNextReview, isDue, sortByReviewPriority } from '@/utils/srs';
+import { isDue, scheduleAfterReview, sortByReviewPriority } from '@/utils/srs';
 
 const defaultProfile: UserProfile = {
   displayName: 'Amin',
@@ -48,6 +48,11 @@ const defaultProfile: UserProfile = {
 const defaultSyncMeta: SyncMeta = {
   dirty: false,
 };
+
+// Wall-clock time between "session started" and "session flushed" is not time
+// spent reciting: a session left open overnight would otherwise add ~840 minutes
+// to the user's total. One hour is well above any real daily goal (max 15 min).
+const MAX_SESSION_SECONDS = 3600;
 
 function changedNow(previous?: SyncMeta): SyncMeta {
   return {
@@ -395,7 +400,7 @@ export const useQuranStore = create<QuranState>()(
             progress: {
               ...state.progress,
               [surahNumber]: {
-                ...calculateNextReview(item, rating),
+                ...scheduleAfterReview(item, rating),
                 updatedAt,
               },
             },
@@ -466,21 +471,36 @@ export const useQuranStore = create<QuranState>()(
         const session = state.activeSession;
         if (!session) return undefined;
 
-        const durationSeconds = Math.max(
-          30,
-          Math.round((Date.now() - new Date(session.startedAt).getTime()) / 1000),
+        // A session where nothing was reviewed and nothing was learned earns no
+        // credit. Without this, a user whose queue is empty and whose surah is
+        // finished can open the empty session screen and tap "Terminer" for a
+        // free streak day, 50 XP and the sub-3-minute badge.
+        if (session.reviewIndex === 0 && session.versesLearned === 0) {
+          set({ activeSession: undefined, lastSummary: undefined });
+          return undefined;
+        }
+
+        const durationSeconds = Math.min(
+          MAX_SESSION_SECONDS,
+          Math.max(
+            30,
+            Math.round((Date.now() - new Date(session.startedAt).getTime()) / 1000),
+          ),
         );
         const completedAt = new Date();
         const isPerfect = isPerfectReviewSession(
           session.reviewQueue.length,
           session.ratings,
         );
-        const today = dateKey();
+        // Credit the day the work was actually done, not the day we happen to be
+        // flushing it: an abandoned session picked up the next morning must not
+        // steal today's streak/XP credit (nor add its overnight idle time).
+        const today = session.date;
         const existingRecord = state.history.find((record) => record.date === today);
         const existingToday = Boolean(existingRecord);
         // `session.isBonus` only controls which surahs are eligible for review
         // (see startDailySession); whether this session counts toward the daily
-        // streak/XP depends solely on whether today's credit was already earned.
+        // streak/XP depends solely on whether that day's credit was already earned.
         const isBonus = existingToday;
         const previous = sortedHistory(state.history).find((record) => record.date !== today);
         const freezeAllowance = session.freezeAllowance ?? state.stats.freezeAllowance ?? 1;

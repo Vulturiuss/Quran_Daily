@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Eye, EyeOff } from 'lucide-react-native';
 
 import { ArabicText } from '@/components/ArabicText';
 import { Card } from '@/components/ui';
 import { VerseAudioButton } from '@/components/VerseAudioButton';
-import { colors, radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/ThemeProvider';
+import { Palette, radius, spacing, typography } from '@/theme';
 import { Verse } from '@/types';
 
 export function VerseCard({
@@ -21,6 +22,8 @@ export function VerseCard({
   showAudio?: boolean;
   tone?: 'default' | 'paper';
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [hidden, setHidden] = useState(initialTestMode);
   const paper = tone === 'paper';
 
@@ -84,7 +87,8 @@ export function VerseCard({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   card: {
     minHeight: 270,
   },
@@ -180,6 +184,7 @@ const styles = StyleSheet.create({
     color: colors.surfaceMuted,
   },
   paperDivider: {
-    backgroundColor: 'rgba(9,23,16,0.18)',
+    backgroundColor: colors.divider,
   },
-});
+  });
+}

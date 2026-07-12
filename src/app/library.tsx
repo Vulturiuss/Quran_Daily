@@ -8,15 +8,18 @@ import { SurahRow } from '@/components/SurahRow';
 import { IconButton, Pill, ScreenTitle } from '@/components/ui';
 import { surahs } from '@/data/surahs';
 import { useSubscription } from '@/providers/SubscriptionProvider';
+import { useTheme } from '@/providers/ThemeProvider';
 import { isFreeSurah } from '@/services/subscription';
 import { useQuranStore } from '@/store/useQuranStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography } from '@/theme';
 import { SurahStatus } from '@/types';
 import { goBackOrReplace } from '@/utils/navigation';
 
 type Filter = 'all' | SurahStatus;
 
 export default function LibraryScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const progress = useQuranStore((state) => state.progress);
   const { configured, isPremium } = useSubscription();
   const hasFullAccess = !configured || isPremium;
@@ -101,7 +104,8 @@ export default function LibraryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     paddingBottom: 0,
   },
@@ -148,4 +152,5 @@ const styles = StyleSheet.create({
   list: {
     paddingBottom: 120,
   },
-});
+  });
+}

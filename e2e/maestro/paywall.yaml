@@ -35,5 +35,5 @@ appId: com.qurandaily.app
     timeout: 20000
 - tapOn: "Découvrir les offres"
 - extendedWaitUntil:
-    visible: "Quran Daily Premium"
+    visible: "Premium & Famille"
     timeout: 20000

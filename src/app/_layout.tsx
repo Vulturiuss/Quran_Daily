@@ -24,7 +24,7 @@ import { FamilyProvider } from '@/providers/FamilyProvider';
 import { GamificationProvider } from '@/providers/GamificationProvider';
 import { ReminderProvider } from '@/providers/ReminderProvider';
 import { SubscriptionProvider } from '@/providers/SubscriptionProvider';
-import { ThemeProvider } from '@/providers/ThemeProvider';
+import { ThemeProvider, useTheme } from '@/providers/ThemeProvider';
 import { colors } from '@/theme';
 
 SplashScreen.setOptions({ duration: 500, fade: true });
@@ -51,6 +51,41 @@ function useNotificationNavigation() {
   }, []);
 }
 
+// The Stack lives in its own component so it can read the palette: RootLayout
+// renders ThemeProvider, so it cannot call useTheme() at its own level. Without
+// this the navigator background stayed teal and every screen transition flashed
+// teal on the pink and blue themes.
+function ThemedStack() {
+  const { colors } = useTheme();
+
+  return (
+    <Stack
+      screenOptions={{
+        animation: 'fade_from_bottom',
+        contentStyle: { backgroundColor: colors.background },
+        headerShown: false,
+      }}
+    >
+      <Stack.Screen name="index" />
+      <Stack.Screen name="onboarding" />
+      <Stack.Screen name="onboarding-account" />
+      <Stack.Screen name="account" />
+      <Stack.Screen name="auth/callback" />
+      <Stack.Screen name="family/index" />
+      <Stack.Screen name="family/[userId]" />
+      <Stack.Screen name="library" />
+      <Stack.Screen name="privacy" />
+      <Stack.Screen name="subscription" />
+      <Stack.Screen name="terms" />
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="session/review" options={{ gestureEnabled: false }} />
+      <Stack.Screen name="session/learn" options={{ gestureEnabled: false }} />
+      <Stack.Screen name="session/complete" options={{ gestureEnabled: false }} />
+      <Stack.Screen name="surah/[number]" />
+    </Stack>
+  );
+}
+
 export default function RootLayout() {
   const [amiriLoaded] = useAmiriFonts({ Amiri_400Regular, Amiri_700Bold });
   const [nunitoLoaded] = useNunitoFonts({
@@ -62,58 +97,28 @@ export default function RootLayout() {
   useNotificationNavigation();
 
   if (!amiriLoaded || !nunitoLoaded) {
+    // Before the store hydrates there is no selected theme yet, so the splash
+    // fallback keeps the static default palette.
     return <View style={{ flex: 1, backgroundColor: colors.background }} />;
   }
 
   return (
     <ThemeProvider>
       <SafeAreaProvider>
-      <CloudProvider>
-        <FamilyProvider>
-          <ReminderProvider>
-            <SubscriptionProvider>
-              <GamificationProvider>
-                <AudioProvider>
-                  <StatusBar style="light" />
-                  <Stack
-                    screenOptions={{
-                      animation: 'fade_from_bottom',
-                      contentStyle: { backgroundColor: colors.background },
-                      headerShown: false,
-                    }}
-                  >
-                    <Stack.Screen name="index" />
-                    <Stack.Screen name="onboarding" />
-                    <Stack.Screen name="onboarding-account" />
-                    <Stack.Screen name="account" />
-                    <Stack.Screen name="auth/callback" />
-                    <Stack.Screen name="family/index" />
-                    <Stack.Screen name="family/[userId]" />
-                    <Stack.Screen name="library" />
-                    <Stack.Screen name="privacy" />
-                    <Stack.Screen name="subscription" />
-                    <Stack.Screen name="terms" />
-                    <Stack.Screen name="(tabs)" />
-                    <Stack.Screen
-                      name="session/review"
-                      options={{ gestureEnabled: false }}
-                    />
-                    <Stack.Screen
-                      name="session/learn"
-                      options={{ gestureEnabled: false }}
-                    />
-                    <Stack.Screen
-                      name="session/complete"
-                      options={{ gestureEnabled: false }}
-                    />
-                    <Stack.Screen name="surah/[number]" />
-                  </Stack>
-                </AudioProvider>
-              </GamificationProvider>
-            </SubscriptionProvider>
-          </ReminderProvider>
-        </FamilyProvider>
-      </CloudProvider>
+        <CloudProvider>
+          <FamilyProvider>
+            <ReminderProvider>
+              <SubscriptionProvider>
+                <GamificationProvider>
+                  <AudioProvider>
+                    <StatusBar style="light" />
+                    <ThemedStack />
+                  </AudioProvider>
+                </GamificationProvider>
+              </SubscriptionProvider>
+            </ReminderProvider>
+          </FamilyProvider>
+        </CloudProvider>
       </SafeAreaProvider>
     </ThemeProvider>
   );

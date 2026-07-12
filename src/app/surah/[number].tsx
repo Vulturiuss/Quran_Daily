@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
@@ -22,13 +23,16 @@ import { getSurah } from '@/data/surahs';
 import { getVerses } from '@/data/verses';
 import { useQuranAudio } from '@/providers/AudioProvider';
 import { useSubscription } from '@/providers/SubscriptionProvider';
+import { useTheme } from '@/providers/ThemeProvider';
 import { reciters, ReciterId } from '@/services/quranApi';
 import { isFreeSurah } from '@/services/subscription';
 import { useQuranStore } from '@/store/useQuranStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { goBackOrReplace } from '@/utils/navigation';
 
 export default function SurahDetailScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const params = useLocalSearchParams<{ number: string }>();
   const number = Number(params.number);
   const surah = getSurah(number);
@@ -233,7 +237,8 @@ export default function SurahDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     paddingBottom: 0,
   },
@@ -328,8 +333,8 @@ const styles = StyleSheet.create({
   },
   audioInfo: {
     alignItems: 'flex-start',
-    backgroundColor: 'rgba(129,199,132,0.08)',
-    borderColor: 'rgba(129,199,132,0.22)',
+    backgroundColor: withAlpha(colors.success, 0.08),
+    borderColor: withAlpha(colors.success, 0.22),
     borderRadius: radius.md,
     borderWidth: 1,
     flexDirection: 'row',
@@ -366,7 +371,7 @@ const styles = StyleSheet.create({
   },
   lockedIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.13)',
+    backgroundColor: withAlpha(colors.gold, 0.13),
     borderRadius: radius.pill,
     height: 66,
     justifyContent: 'center',
@@ -382,4 +387,5 @@ const styles = StyleSheet.create({
     maxWidth: 330,
     textAlign: 'center',
   },
-});
+  });
+}

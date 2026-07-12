@@ -1,5 +1,5 @@
 import { supabase } from '@/services/supabase';
-import { FamilyContext, FamilyMemberSummary, FamilyRole } from '@/types';
+import { FamilyContext, FamilyMemberSummary } from '@/types';
 import {
   normalizeFamilyContext,
   normalizeFamilyMembers,
@@ -49,18 +49,29 @@ export async function createFamily(
     : { data: normalizeFamilyContext(data) };
 }
 
+// Members always join as `child`; only the subscription owner can promote
+// someone to parent afterwards (the invite code is shared with the people the
+// parental dashboard is meant to watch over, so it cannot confer the role).
 export async function joinFamily(
   code: string,
-  role: FamilyRole = 'child',
 ): Promise<FamilyResult<FamilyContext | null>> {
   if (!supabase) return { error: 'Supabase n’est pas configuré.' };
   const { data, error } = await supabase.rpc('join_family_space', {
     family_code: code.trim().toUpperCase(),
-    member_role: role,
   });
   return error
     ? { error: message(error) }
     : { data: normalizeFamilyContext(data) };
+}
+
+export async function promoteFamilyMember(
+  userId: string,
+): Promise<FamilyResult> {
+  if (!supabase) return { error: 'Supabase n’est pas configuré.' };
+  const { error } = await supabase.rpc('promote_family_member', {
+    member_user_id: userId,
+  });
+  return error ? { error: message(error) } : {};
 }
 
 export async function regenerateInviteCode(): Promise<

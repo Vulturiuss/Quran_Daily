@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ArrowLeft, ExternalLink, Mail } from 'lucide-react-native';
 
@@ -8,7 +9,8 @@ import {
   legalUpdatedAt,
   supportEmail,
 } from '@/content/legal';
-import { colors, radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/ThemeProvider';
+import { Palette, radius, spacing, typography } from '@/theme';
 import { goBackOrReplace } from '@/utils/navigation';
 
 interface LegalDocumentProps {
@@ -24,6 +26,9 @@ export function LegalDocument({
   sections,
   externalUrl,
 }: LegalDocumentProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   return (
     <AppScreen>
       <ScreenTitle
@@ -83,7 +88,8 @@ export function LegalDocument({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   updated: {
     color: colors.goldSoft,
     fontFamily: typography.bold,
@@ -150,4 +156,5 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.72,
   },
-});
+  });
+}

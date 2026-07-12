@@ -168,9 +168,14 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         __DEV__ ? LOG_LEVEL.DEBUG : LOG_LEVEL.INFO,
       );
       if (!(await Purchases.isConfigured())) {
+        // Read through the ref, not the captured `session`: this effect is a
+        // one-shot SDK bootstrap, and taking session.user.id as a dependency
+        // would re-configure the whole SDK on every sign-in. Identity changes
+        // are handled by the logIn/logOut effect below.
+        const userId = activeProfileUserId.current;
         Purchases.configure({
           apiKey: revenueCatApiKey,
-          ...(session?.user.id ? { appUserID: session.user.id } : {}),
+          ...(userId ? { appUserID: userId } : {}),
         });
       }
 

@@ -32,7 +32,7 @@ import { useSubscription } from '@/providers/SubscriptionProvider';
 import { enableSmartReminders } from '@/services/notifications';
 import { isFreeSurah } from '@/services/subscription';
 import { useQuranStore } from '@/store/useQuranStore';
-import { Palette, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 
 const learnableNumbers = [108, 109, 110, 111, 107, 106, 105, 103, 1];
 const goals = [
@@ -291,7 +291,7 @@ export default function OnboardingScreen() {
                 <Switch
                   onValueChange={setNotificationsEnabled}
                   thumbColor={notificationsEnabled ? colors.gold : colors.textFaint}
-                  trackColor={{ false: colors.surfaceElevated, true: 'rgba(212,163,115,0.35)' }}
+                  trackColor={{ false: colors.surfaceElevated, true: withAlpha(colors.gold, 0.35) }}
                   value={notificationsEnabled}
                 />
               </View>
@@ -434,7 +434,7 @@ function createStyles(colors: Palette) {
   },
   stepIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderColor: colors.border,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -475,7 +475,7 @@ function createStyles(colors: Palette) {
     padding: spacing.md,
   },
   surahChoiceSelected: {
-    backgroundColor: 'rgba(212,163,115,0.1)',
+    backgroundColor: withAlpha(colors.gold, 0.1),
     borderColor: colors.gold,
   },
   check: {
@@ -526,7 +526,7 @@ function createStyles(colors: Palette) {
     padding: spacing.md,
   },
   learningChoiceSelected: {
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderColor: colors.gold,
   },
   learningName: {
@@ -560,7 +560,7 @@ function createStyles(colors: Palette) {
     padding: spacing.md,
   },
   goalSelected: {
-    backgroundColor: 'rgba(212,163,115,0.11)',
+    backgroundColor: withAlpha(colors.gold, 0.11),
     borderColor: colors.gold,
   },
   goalMinutes: {
@@ -620,7 +620,7 @@ function createStyles(colors: Palette) {
   },
   notificationIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderRadius: radius.md,
     height: 46,
     justifyContent: 'center',
@@ -650,8 +650,8 @@ function createStyles(colors: Palette) {
   },
   readyCard: {
     alignItems: 'center',
-    backgroundColor: 'rgba(129,199,132,0.1)',
-    borderColor: 'rgba(129,199,132,0.26)',
+    backgroundColor: withAlpha(colors.success, 0.1),
+    borderColor: withAlpha(colors.success, 0.26),
     borderRadius: radius.md,
     borderWidth: 1,
     flexDirection: 'row',

@@ -35,6 +35,36 @@ export function calculateNextReview(
   };
 }
 
+/**
+ * Applies a review to the schedule, but never lets a bonus review of a surah
+ * that was not yet due push its due date further away. Without this, a diligent
+ * user chaining bonus sessions kept multiplying every interval by the ease
+ * factor until all of them hit the 180-day cap — and then had nothing to review
+ * for months, which is the exact opposite of what the extra work should earn.
+ * A `forgot`/`hard` rating still pulls the review in, whatever the due state.
+ */
+export function scheduleAfterReview(
+  progress: UserSurahProgress,
+  rating: ReviewRating,
+  now = new Date(),
+): UserSurahProgress {
+  const next = calculateNextReview(progress, rating, now);
+  if (isDue(progress, now)) return next;
+
+  const currentDue = progress.nextReviewAt
+    ? new Date(progress.nextReviewAt).getTime()
+    : 0;
+  const nextDue = new Date(next.nextReviewAt!).getTime();
+  if (nextDue <= currentDue) return next;
+
+  return {
+    ...progress,
+    lastReviewedAt: now.toISOString(),
+    easeFactor: next.easeFactor,
+    reviewCount: progress.reviewCount + 1,
+  };
+}
+
 export function isDue(progress: UserSurahProgress, now = new Date()) {
   if (progress.status !== 'known') return false;
   if (!progress.nextReviewAt) return true;

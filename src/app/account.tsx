@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Alert,
   StyleSheet,
@@ -27,8 +27,9 @@ import {
   SectionHeader,
 } from '@/components/ui';
 import { useCloud } from '@/providers/CloudProvider';
+import { useTheme } from '@/providers/ThemeProvider';
 import { useQuranStore } from '@/store/useQuranStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { goBackOrReplace } from '@/utils/navigation';
 
 const statusLabels = {
@@ -41,6 +42,8 @@ const statusLabels = {
 } as const;
 
 export default function AccountScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const {
     configured,
     initializing,
@@ -290,14 +293,15 @@ export default function AccountScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   iconRow: {
     alignItems: 'center',
     flexDirection: 'row',
   },
   iconBox: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderRadius: radius.md,
     height: 50,
     justifyContent: 'center',
@@ -337,7 +341,7 @@ const styles = StyleSheet.create({
   },
   statusBox: {
     alignItems: 'center',
-    backgroundColor: 'rgba(129,199,132,0.08)',
+    backgroundColor: withAlpha(colors.success, 0.08),
     borderRadius: radius.md,
     flexDirection: 'row',
     gap: spacing.sm,
@@ -401,4 +405,5 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginVertical: spacing.xs,
   },
-});
+  });
+}

@@ -22,9 +22,15 @@ import {
 } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
 import { useSubscription } from '@/providers/SubscriptionProvider';
+import { useTheme } from '@/providers/ThemeProvider';
 import { FREE_SURAH_NUMBERS } from '@/services/subscription';
+import {
+  FREE_MAX_REVIEWS,
+  hasFullAccess as computeFullAccess,
+  sessionAccess,
+} from '@/utils/access';
 import { useQuranStore } from '@/store/useQuranStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { UserSurahProgress } from '@/types';
 import { dateKey, dayDifference, formatShortDate } from '@/utils/date';
 import { isDue, sortByReviewPriority } from '@/utils/srs';
@@ -59,6 +65,8 @@ function ReviewCard({
   progress: UserSurahProgress;
   now: Date;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const surah = getSurah(progress.surahNumber);
   if (!surah) return null;
 
@@ -122,17 +130,19 @@ function ReviewCard({
 }
 
 export default function ReviewScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const profile = useQuranStore((state) => state.profile);
   const progress = useQuranStore((state) => state.progress);
   const history = useQuranStore((state) => state.history);
   const startDailySession = useQuranStore((state) => state.startDailySession);
   const { configured, isPremium } = useSubscription();
-  const hasFullAccess = !configured || isPremium;
+  const hasFullAccess = computeFullAccess(configured, isPremium);
   const now = useMemo(() => new Date(), []);
   const freeSurahs = useMemo(() => new Set<number>(FREE_SURAH_NUMBERS), []);
   const reviewLimit = hasFullAccess
     ? profile.dailyGoalReviews
-    : Math.min(3, profile.dailyGoalReviews);
+    : Math.min(FREE_MAX_REVIEWS, profile.dailyGoalReviews);
   const todayRecord = history.find((record) => record.date === dateKey(now));
 
   const known = useMemo(
@@ -175,19 +185,7 @@ export default function ReviewScreen() {
       return;
     }
 
-    startDailySession(
-      hasFullAccess
-        ? {
-            isBonus,
-            freezeAllowance: 3,
-          }
-        : {
-            maxReviews: 3,
-            allowedSurahNumbers: FREE_SURAH_NUMBERS,
-            isBonus,
-            freezeAllowance: 1,
-          },
-    );
+    startDailySession(sessionAccess(hasFullAccess, isBonus));
     const session = useQuranStore.getState().activeSession;
     if (session?.reviewQueue.length) {
       router.push('/session/review');
@@ -328,7 +326,8 @@ export default function ReviewScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   hero: {
     padding: spacing.lg,
   },
@@ -338,7 +337,7 @@ const styles = StyleSheet.create({
   },
   heroIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderColor: colors.border,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -365,7 +364,7 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   heroStats: {
-    backgroundColor: 'rgba(19,78,74,0.32)',
+    backgroundColor: withAlpha(colors.backgroundDeep, 0.32),
     borderColor: colors.border,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -433,7 +432,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   reviewCard: {
-    backgroundColor: 'rgba(15,118,110,0.94)',
+    backgroundColor: withAlpha(colors.background, 0.94),
     borderColor: colors.border,
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -448,7 +447,7 @@ const styles = StyleSheet.create({
   },
   reviewMark: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.1)',
+    backgroundColor: withAlpha(colors.gold, 0.1),
     borderRadius: radius.md,
     height: 44,
     justifyContent: 'center',
@@ -505,7 +504,7 @@ const styles = StyleSheet.create({
   },
   timingPill: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderColor: colors.border,
     borderRadius: radius.pill,
     borderWidth: 1,
@@ -536,4 +535,5 @@ const styles = StyleSheet.create({
     maxWidth: 300,
     textAlign: 'center',
   },
-});
+  });
+}

@@ -24,6 +24,23 @@ test('weekly XP and freezes reset on their calendar boundaries', () => {
   assert.equal(normalized.freezeAllowance, 3);
 });
 
+test('a consumed freeze is not handed back when the allowance changes mid-month', () => {
+  // The premium flag resolves asynchronously, so on every launch the allowance
+  // goes 3 -> 1 -> 3. Refilling on that transition made premium streaks
+  // unbreakable: the freezes came back for free on each boot.
+  const now = new Date(2026, 6, 12, 12);
+  const stored = createDefaultStats(now);
+  stored.freezeAllowance = 3;
+  stored.freezeCount = 1; // two freezes already spent this month
+
+  const afterBoot = normalizeStats(stored, 1, now); // subscription not resolved yet
+  const afterPremium = normalizeStats(afterBoot, 3, now); // premium resolves
+
+  assert.equal(afterBoot.freezeCount, 1, 'a smaller allowance only clamps');
+  assert.equal(afterPremium.freezeCount, 1, 'the spent freezes stay spent');
+  assert.equal(afterPremium.freezeAllowance, 3);
+});
+
 test('one missed day consumes a freeze and preserves the streak', () => {
   const stats = createDefaultStats(new Date(2026, 5, 15, 12));
   stats.currentStreak = 8;

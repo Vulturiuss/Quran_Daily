@@ -1,6 +1,9 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 
+// The Android notification channel is created outside React, so it uses the
+// static palette. The accent is theme-invariant, so this stays correct.
+import { colors } from '@/theme';
 import { buildReminderPlan, REMINDER_ID_PREFIX } from '@/utils/reminders';
 
 const LEGACY_REMINDER_ID = 'quran-daily-reminder';
@@ -35,12 +38,12 @@ async function ensureAndroidChannels() {
     Notifications.setNotificationChannelAsync(DAILY_CHANNEL_ID, {
       name: 'Rappels quotidiens',
       importance: Notifications.AndroidImportance.DEFAULT,
-      lightColor: '#D4A373',
+      lightColor: colors.gold,
     }),
     Notifications.setNotificationChannelAsync(STREAK_CHANNEL_ID, {
       name: 'Protection du streak',
       importance: Notifications.AndroidImportance.HIGH,
-      lightColor: '#D4A373',
+      lightColor: colors.gold,
     }),
   ]);
 }

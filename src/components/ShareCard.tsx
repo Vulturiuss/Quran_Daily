@@ -1,9 +1,10 @@
-import { forwardRef } from 'react';
+import { forwardRef, useMemo } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { ornamentalPatternSource } from '@/components/OrnamentalCard';
-import { colors, radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/ThemeProvider';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { SessionSummary } from '@/types';
 import { formatDuration } from '@/utils/date';
 
@@ -15,7 +16,11 @@ interface ShareCardProps {
 const appUrl = process.env.EXPO_PUBLIC_APP_URL?.trim() || 'Quran Daily';
 
 export const ShareCard = forwardRef<View, ShareCardProps>(
-  ({ streak, summary }, ref) => (
+  ({ streak, summary }, ref) => {
+    const { colors } = useTheme();
+    const styles = useMemo(() => createStyles(colors), [colors]);
+
+    return (
     <View collapsable={false} ref={ref} style={styles.frame}>
       <Image
         resizeMode="cover"
@@ -23,11 +28,7 @@ export const ShareCard = forwardRef<View, ShareCardProps>(
         style={styles.pattern}
       />
       <LinearGradient
-        colors={[
-          'rgba(9,23,16,0.72)',
-          'rgba(16,37,27,0.76)',
-          'rgba(31,72,49,0.86)',
-        ]}
+        colors={[...colors.shareGradient]}
         end={{ x: 1, y: 1 }}
         start={{ x: 0, y: 0 }}
         style={styles.card}
@@ -74,12 +75,14 @@ export const ShareCard = forwardRef<View, ShareCardProps>(
         <Text style={styles.footer}>{appUrl}</Text>
       </LinearGradient>
     </View>
-  ),
+    );
+  },
 );
 
 ShareCard.displayName = 'ShareCard';
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   frame: {
     aspectRatio: 1,
     backgroundColor: colors.backgroundDeep,
@@ -109,7 +112,7 @@ const styles = StyleSheet.create({
   },
   brandMark: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.14)',
+    backgroundColor: withAlpha(colors.gold, 0.14),
     borderColor: colors.gold,
     borderRadius: radius.pill,
     borderWidth: 1,
@@ -163,7 +166,7 @@ const styles = StyleSheet.create({
   },
   stats: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.055)',
+    backgroundColor: withAlpha(colors.white, 0.055),
     borderRadius: radius.md,
     flexDirection: 'row',
     paddingVertical: spacing.md,
@@ -204,4 +207,5 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     textAlign: 'center',
   },
-});
+  });
+}

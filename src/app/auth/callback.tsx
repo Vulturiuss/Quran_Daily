@@ -1,12 +1,15 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { useCloud } from '@/providers/CloudProvider';
+import { useTheme } from '@/providers/ThemeProvider';
 import { useQuranStore } from '@/store/useQuranStore';
-import { colors, typography } from '@/theme';
+import { Palette, typography } from '@/theme';
 
 export default function AuthCallbackScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { session, initializing, lastError, syncNow } = useCloud();
   const finishAccountOnboarding = useQuranStore(
     (state) => state.finishAccountOnboarding,
@@ -37,7 +40,8 @@ export default function AuthCallbackScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     alignItems: 'center',
     backgroundColor: colors.background,
@@ -50,4 +54,5 @@ const styles = StyleSheet.create({
     fontFamily: typography.medium,
     fontSize: 13,
   },
-});
+  });
+}

@@ -53,7 +53,6 @@ export function normalizeStats(
   const currentWeek = weekStartKey(now);
   const storedMonth = stats?.freezeRefillMonth ?? currentMonth;
   const storedWeek = stats?.weekStart ?? currentWeek;
-  const allowanceChanged = (stats?.freezeAllowance ?? 1) !== allowance;
 
   return {
     ...defaults,
@@ -61,8 +60,13 @@ export function normalizeStats(
     weeklyXP: storedWeek === currentWeek ? (stats?.weeklyXP ?? 0) : 0,
     weekStart: currentWeek,
     consecutivePerfectSessions: stats?.consecutivePerfectSessions ?? 0,
+    // Freezes refill on a month boundary and nowhere else. Refilling whenever the
+    // allowance *changed* meant every app launch handed them back: the premium
+    // flag resolves asynchronously, so the allowance flips 3 -> 1 -> 3 on each
+    // boot, which made a premium streak effectively unbreakable. A shrinking
+    // allowance just clamps the balance instead.
     freezeCount:
-      storedMonth !== currentMonth || allowanceChanged
+      storedMonth !== currentMonth
         ? allowance
         : Math.min(allowance, Math.max(0, stats?.freezeCount ?? allowance)),
     freezeAllowance: allowance,

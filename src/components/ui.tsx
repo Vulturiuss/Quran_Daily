@@ -13,7 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { LucideProps } from 'lucide-react-native';
 
 import { useTheme } from '@/providers/ThemeProvider';
-import { Palette, motion, radius, spacing, typography } from '@/theme';
+import { Palette, motion, radius, spacing, typography, withAlpha } from '@/theme';
 
 type Icon = ComponentType<LucideProps>;
 
@@ -377,14 +377,14 @@ function createStyles(colors: Palette) {
       marginTop: 3,
     },
     card: {
-      backgroundColor: 'rgba(25,56,42,0.94)',
+      backgroundColor: colors.card,
       borderColor: colors.border,
       borderRadius: radius.lg,
       borderWidth: 1,
       elevation: 2,
       overflow: 'hidden',
       padding: spacing.lg,
-      shadowColor: '#000000',
+      shadowColor: colors.shadow,
       shadowOffset: { height: 5, width: 0 },
       shadowOpacity: 0.14,
       shadowRadius: 10,
@@ -415,12 +415,12 @@ function createStyles(colors: Palette) {
     },
     button_ghost: {
       backgroundColor: 'transparent',
-      borderColor: 'rgba(245,245,240,0.18)',
+      borderColor: withAlpha(colors.text, 0.18),
       borderWidth: 1,
     },
     button_danger: {
-      backgroundColor: 'rgba(229,115,115,0.14)',
-      borderColor: 'rgba(229,115,115,0.35)',
+      backgroundColor: withAlpha(colors.error, 0.14),
+      borderColor: withAlpha(colors.error, 0.35),
       borderWidth: 1,
     },
     buttonCompact: {
@@ -446,7 +446,7 @@ function createStyles(colors: Palette) {
       fontSize: 14,
     },
     progressTrack: {
-      backgroundColor: 'rgba(255,255,255,0.09)',
+      backgroundColor: withAlpha(colors.white, 0.09),
       borderRadius: radius.pill,
       overflow: 'hidden',
       width: '100%',
@@ -456,7 +456,7 @@ function createStyles(colors: Palette) {
     },
     statCard: {
       alignItems: 'center',
-      backgroundColor: 'rgba(25,56,42,0.94)',
+      backgroundColor: colors.card,
       borderColor: colors.border,
       borderRadius: radius.md,
       borderWidth: 1,
@@ -479,14 +479,14 @@ function createStyles(colors: Palette) {
     },
     pill: {
       backgroundColor: colors.surface,
-      borderColor: 'rgba(255,255,255,0.12)',
+      borderColor: withAlpha(colors.white, 0.12),
       borderRadius: radius.pill,
       borderWidth: 1,
       paddingHorizontal: 15,
       paddingVertical: 9,
     },
     pillSelected: {
-      backgroundColor: 'rgba(212,163,115,0.17)',
+      backgroundColor: withAlpha(colors.gold, 0.17),
       borderColor: colors.gold,
     },
     pillText: {
@@ -512,7 +512,7 @@ function createStyles(colors: Palette) {
     },
     iconButton: {
       alignItems: 'center',
-      backgroundColor: 'rgba(25,56,42,0.95)',
+      backgroundColor: colors.cardStrong,
       borderColor: colors.borderStrong,
       borderRadius: radius.pill,
       borderWidth: 1,
@@ -520,7 +520,7 @@ function createStyles(colors: Palette) {
       justifyContent: 'center',
       width: 44,
       elevation: 3,
-      shadowColor: '#000000',
+      shadowColor: colors.shadow,
       shadowOffset: { height: 4, width: 0 },
       shadowOpacity: 0.2,
       shadowRadius: 8,
