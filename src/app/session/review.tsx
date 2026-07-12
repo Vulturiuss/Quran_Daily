@@ -18,11 +18,13 @@ import { VerseAudioButton } from '@/components/VerseAudioButton';
 import { Card, IconButton, Pill, PrimaryButton, ProgressBar } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
 import { getVerses } from '@/data/verses';
+import { useDwell } from '@/hooks/useDwell';
 import { useQuranAudio } from '@/providers/AudioProvider';
 import { useTheme } from '@/providers/ThemeProvider';
 import { useQuranStore } from '@/store/useQuranStore';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { ReviewRating, Verse } from '@/types';
+import { minReviewSeconds } from '@/utils/effort';
 
 // A long surah puts a few hundred of these on screen at once. Memoising the row
 // means a rating tap, a display toggle or an audio state change re-renders only
@@ -76,6 +78,13 @@ export default function ReviewSessionScreen() {
   const total = session?.reviewQueue.length ?? 0;
   const current = session?.reviewIndex ?? 0;
 
+  // Time spent on this surah, background time excluded. A rating given before the
+  // surah could plausibly have been recited is not an honest rating.
+  const { seconds } = useDwell(currentNumber);
+  const requiredSeconds = minReviewSeconds(surah);
+  const ready = seconds >= requiredSeconds;
+  const remainingSeconds = Math.max(0, requiredSeconds - seconds);
+
   useEffect(() => {
     if (!session) {
       router.replace('/(tabs)');
@@ -89,13 +98,14 @@ export default function ReviewSessionScreen() {
   }, [current]);
 
   async function rate(rating: ReviewRating) {
+    if (!ready) return;
     await stop();
     void Haptics.impactAsync(
       rating === 'good'
         ? Haptics.ImpactFeedbackStyle.Light
         : Haptics.ImpactFeedbackStyle.Medium,
     );
-    rateCurrentReview(rating);
+    rateCurrentReview(rating, seconds);
   }
 
   function confirmExit() {
@@ -208,16 +218,20 @@ export default function ReviewSessionScreen() {
       <View style={styles.footer}>
         <Text style={styles.question}>Comment t’en souviens-tu ?</Text>
         <View style={styles.ratingButtons}>
+          {/* The three buttons unlock together, but only this one fills up:
+              three bars charging in parallel would be noise, not guidance. */}
           <PrimaryButton
             compact
             icon={Check}
             label="Bien"
             onPress={() => void rate('good')}
+            progress={seconds / requiredSeconds}
             style={styles.ratingButton}
             variant="surface"
           />
           <PrimaryButton
             compact
+            disabled={!ready}
             icon={Frown}
             label="À revoir"
             onPress={() => void rate('hard')}
@@ -226,6 +240,7 @@ export default function ReviewSessionScreen() {
           />
           <PrimaryButton
             compact
+            disabled={!ready}
             icon={CircleX}
             label="Oubliée"
             onPress={() => void rate('forgot')}
@@ -233,7 +248,11 @@ export default function ReviewSessionScreen() {
             variant="danger"
           />
         </View>
-        <Text style={styles.hint}>Ce choix ajuste la prochaine date de révision.</Text>
+        <Text style={styles.hint}>
+          {ready
+            ? 'Ce choix ajuste la prochaine date de révision.'
+            : `Prends le temps de réciter — encore ${remainingSeconds} s.`}
+        </Text>
       </View>
     </AppScreen>
   );

@@ -23,6 +23,7 @@ import { CloudProvider } from '@/providers/CloudProvider';
 import { FamilyProvider } from '@/providers/FamilyProvider';
 import { GamificationProvider } from '@/providers/GamificationProvider';
 import { ReminderProvider } from '@/providers/ReminderProvider';
+import { SessionUploadProvider } from '@/providers/SessionUploadProvider';
 import { SubscriptionProvider } from '@/providers/SubscriptionProvider';
 import { ThemeProvider, useTheme } from '@/providers/ThemeProvider';
 import { colors } from '@/theme';
@@ -112,6 +113,7 @@ export default function RootLayout() {
         <FamilyProvider>
           <ReminderProvider>
             <SubscriptionProvider>
+              <SessionUploadProvider>
               <GamificationProvider>
                 {/* ThemeProvider sits below SubscriptionProvider: themes are a
                     Premium feature, so it needs to know the tier to fall back to
@@ -122,6 +124,7 @@ export default function RootLayout() {
                   </AudioProvider>
                 </ThemeProvider>
               </GamificationProvider>
+              </SessionUploadProvider>
             </SubscriptionProvider>
           </ReminderProvider>
         </FamilyProvider>

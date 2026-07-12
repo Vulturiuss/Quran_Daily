@@ -106,6 +106,30 @@ export interface ActiveSession {
   isBonus?: boolean;
   freezeAllowance?: number;
   completedSurah?: number;
+  /**
+   * Time actually spent on the text, accumulated item by item and capped per
+   * item. Not wall clock: leaving the app open must not earn recitation time,
+   * and tapping through must not earn a session. This is what
+   * `SessionRecord.durationSeconds` carries from now on.
+   */
+  activeSeconds: number;
+}
+
+/**
+ * A completed session waiting to be sent to the server, which is the only judge
+ * of whether it counts. Kept in a queue so an offline session is not lost — the
+ * app must stay usable in the metro.
+ */
+export interface PendingSession {
+  id: string;
+  date: string;
+  startedAt: string;
+  completedAt: string;
+  activeSeconds: number;
+  xpEarned: number;
+  surahsReviewed: number;
+  versesLearned: number;
+  isPerfect: boolean;
 }
 
 export interface SessionSummary {
@@ -179,6 +203,8 @@ export interface FamilyMemberSummary {
   learningTotalVerses: number;
   history: SessionRecord[];
   todayCompleted: boolean;
+  /** Minutes actually spent on the text today, as accepted by the server. */
+  todayMinutes: number;
   todayReviews: number;
   todayVersesLearned: number;
   todayXPEarned: number;

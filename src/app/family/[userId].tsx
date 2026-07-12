@@ -131,9 +131,17 @@ export default function FamilyMemberScreen() {
           </Text>
           <Text style={styles.todayText}>
             {member.todayCompleted
-              ? `${member.todayReviews} révision${member.todayReviews > 1 ? 's' : ''} · ${member.todayVersesLearned} verset${member.todayVersesLearned > 1 ? 's' : ''} · +${member.todayXPEarned} XP`
+              ? `${member.todayMinutes} min de travail · ${member.todayReviews} révision${member.todayReviews > 1 ? 's' : ''} · ${member.todayVersesLearned} verset${member.todayVersesLearned > 1 ? 's' : ''} · +${member.todayXPEarned} XP`
               : 'Aucune session synchronisée aujourd’hui.'}
           </Text>
+          {member.todayCompleted ? (
+            // The time is what makes the rest meaningful: it is measured on the
+            // text itself and validated by the server, so it cannot be earned by
+            // tapping through.
+            <Text style={styles.verifiedNote}>
+              Temps réellement passé sur le texte, vérifié.
+            </Text>
+          ) : null}
         </View>
       </Card>
 
@@ -329,6 +337,12 @@ function createStyles(colors: Palette) {
     color: colors.text,
     fontFamily: typography.extraBold,
     fontSize: 16,
+  },
+  verifiedNote: {
+    color: colors.textFaint,
+    fontFamily: typography.regular,
+    fontSize: 11,
+    marginTop: 4,
   },
   todayText: {
     color: colors.textMuted,

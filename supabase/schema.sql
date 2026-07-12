@@ -82,14 +82,14 @@ create table if not exists public.user_badges (
   unique (user_id, badge_id)
 );
 
--- The payload is written freely by the client (it is the user's own progress),
--- so it is bounded: a member could otherwise store megabytes of jsonb, which the
--- family dashboard then walks on every read.
+-- The payload is written freely by the client — it is the user's own progress,
+-- kept here only so it survives a reinstall or a new device. It is bounded, since
+-- a member could otherwise store megabytes of jsonb.
 --
--- NOTE: the family dashboard derives every figure a parent sees from this
--- payload, so those figures are DECLARATIVE — a child can edit their own row.
--- Making them trustworthy means deriving them server-side from daily_sessions /
--- streaks / user_xp, which exist but are not read today.
+-- It is NOT what a parent sees. Everything the family dashboard reports about
+-- effort — sessions done, time spent, streak, XP — comes from `daily_sessions`,
+-- which only `record_daily_session()` can write. A child editing this row can
+-- change what their own device shows them, and nothing more.
 create table if not exists public.user_state_snapshots (
   user_id uuid primary key references auth.users(id) on delete cascade,
   payload jsonb not null default '{}'::jsonb
@@ -222,9 +222,38 @@ grant update (
 drop policy if exists "surah_progress_own_rows" on public.surah_progress;
 create policy "surah_progress_own_rows" on public.surah_progress
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+-- One row per user per day, accumulated by record_daily_session().
+alter table public.daily_sessions
+  add column if not exists active_seconds integer not null default 0,
+  add column if not exists session_count integer not null default 0;
+
+-- Sessions are submitted from a queue that survives being offline, so the same
+-- one can arrive twice. Without this, a retry would double a child's streak day.
+create table if not exists public.session_submissions (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  client_id text not null,
+  session_date date not null,
+  received_at timestamptz not null default now(),
+  primary key (user_id, client_id)
+);
+
+alter table public.session_submissions enable row level security;
+drop policy if exists "session_submissions_select_own" on public.session_submissions;
+create policy "session_submissions_select_own" on public.session_submissions
+  for select using (auth.uid() = user_id);
+revoke insert, update, delete on public.session_submissions from authenticated;
+revoke all on public.session_submissions from anon;
+
+-- daily_sessions is the ONLY thing a parent's dashboard trusts, so the client can
+-- read its own rows but never write them: everything goes through
+-- record_daily_session(), which refuses a session that could not have been worked.
+-- It used to be `for all`, i.e. a child could simply PATCH themselves a streak.
 drop policy if exists "daily_sessions_own_rows" on public.daily_sessions;
-create policy "daily_sessions_own_rows" on public.daily_sessions
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "daily_sessions_select_own_rows" on public.daily_sessions
+  for select using (auth.uid() = user_id);
+
+revoke insert, update, delete on public.daily_sessions from authenticated;
+revoke all on public.daily_sessions from anon;
 drop policy if exists "streaks_own_row" on public.streaks;
 create policy "streaks_own_row" on public.streaks
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
@@ -789,11 +818,17 @@ begin
         'role', member.role,
         'isOwner', family.owner_id = member.user_id,
         'joinedAt', member.joined_at,
-        'currentStreak', coalesce((snapshot.payload #>> '{stats,currentStreak}')::integer, 0),
-        'longestStreak', coalesce((snapshot.payload #>> '{stats,longestStreak}')::integer, 0),
-        'totalXP', coalesce((snapshot.payload #>> '{stats,totalXP}')::integer, 0),
-        'totalSessions', coalesce((snapshot.payload #>> '{stats,totalSessions}')::integer, 0),
-        'totalMinutes', coalesce((snapshot.payload #>> '{stats,totalMinutes}')::integer, 0),
+        -- VERIFIED: from daily_sessions, which only record_daily_session() can
+        -- write and which refuses a session that could not have been worked.
+        -- These used to come from the snapshot — a blob the child writes — so a
+        -- child could simply hand their parents a 365-day streak.
+        'currentStreak', public.verified_streak(member.user_id),
+        'longestStreak', coalesce(verified.longest_streak, 0),
+        'totalXP', coalesce(verified.total_xp, 0),
+        'totalSessions', coalesce(verified.total_sessions, 0),
+        'totalMinutes', coalesce(verified.total_minutes, 0),
+        -- DECLARATIVE: the child's own claim about their memorisation. Not a
+        -- cheat vector for the daily habit a parent follows, but not proof either.
         'knownSurahs', coalesce((
           select count(*)
           from jsonb_each(coalesce(snapshot.payload -> 'progress', '{}'::jsonb)) progress_item
@@ -821,38 +856,39 @@ begin
           where progress_item.value ->> 'status' = 'learning'
           limit 1
         ),
-        -- The dashboard exists so parents can follow their children. Another
-        -- parent's day-by-day history is none of their business, so it is only
+        -- VERIFIED history, straight from the accepted sessions. Another parent's
+        -- day-by-day history is none of a parent's business, so it is only
         -- returned for children and for the caller themselves.
         'history', case
-          when member.role = 'child' or member.user_id = auth.uid()
-            then coalesce(snapshot.payload -> 'history', '[]'::jsonb)
+          when member.role = 'child' or member.user_id = auth.uid() then coalesce((
+            select jsonb_agg(
+              jsonb_build_object(
+                'date', day.session_date,
+                'completedAt', day.completed_at,
+                'durationSeconds', day.active_seconds,
+                'xpEarned', day.xp_earned,
+                'surahsReviewed', day.surahs_reviewed,
+                'versesLearned', day.verses_learned,
+                'isPerfect', day.is_perfect,
+                'sessionCount', day.session_count
+              )
+              order by day.session_date desc
+            )
+            from public.daily_sessions day
+            where day.user_id = member.user_id
+              and day.session_count > 0
+              and day.session_date >= current_date - 90
+          ), '[]'::jsonb)
           else '[]'::jsonb
         end,
-        'todayCompleted', coalesce((
-          select count(*) > 0
-          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
-          where history_item.value ->> 'date' = current_date::text
-        ), false),
-        'todayReviews', coalesce((
-          select sum(coalesce((history_item.value ->> 'surahsReviewed')::integer, 0))
-          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
-          where history_item.value ->> 'date' = current_date::text
-        ), 0),
-        'todayVersesLearned', coalesce((
-          select sum(coalesce((history_item.value ->> 'versesLearned')::integer, 0))
-          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
-          where history_item.value ->> 'date' = current_date::text
-        ), 0),
-        'todayXPEarned', coalesce((
-          select sum(coalesce((history_item.value ->> 'xpEarned')::integer, 0))
-          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
-          where history_item.value ->> 'date' = current_date::text
-        ), 0),
-        'lastSessionDate', (
-          select max(history_item.value ->> 'date')
-          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
-        ),
+        -- VERIFIED: whether today's work actually happened, and how long it
+        -- actually took. This is the question the family plan exists to answer.
+        'todayCompleted', coalesce(today.session_count, 0) > 0,
+        'todayReviews', coalesce(today.surahs_reviewed, 0),
+        'todayVersesLearned', coalesce(today.verses_learned, 0),
+        'todayXPEarned', coalesce(today.xp_earned, 0),
+        'todayMinutes', round(coalesce(today.active_seconds, 0) / 60.0),
+        'lastSessionDate', verified.last_session_date,
         'snapshotUpdatedAt', snapshot.updated_at
       )
       order by member.role desc, member.joined_at
@@ -864,6 +900,24 @@ begin
   join public.families family on family.id = member.family_id
   join public.profiles profile on profile.id = member.user_id
   left join public.user_state_snapshots snapshot on snapshot.user_id = member.user_id
+  left join lateral (
+    select
+      sum(day.xp_earned)::integer as total_xp,
+      sum(day.session_count)::integer as total_sessions,
+      round(sum(day.active_seconds) / 60.0)::integer as total_minutes,
+      max(day.session_date) as last_session_date,
+      public.verified_longest_streak(member.user_id) as longest_streak
+    from public.daily_sessions day
+    where day.user_id = member.user_id
+      and day.session_count > 0
+  ) verified on true
+  left join lateral (
+    select day.session_count, day.surahs_reviewed, day.verses_learned,
+           day.xp_earned, day.active_seconds
+    from public.daily_sessions day
+    where day.user_id = member.user_id
+      and day.session_date = current_date
+  ) today on true
   where member.family_id = owned_family_id;
 
   return result;
@@ -900,3 +954,266 @@ begin
   end if;
 end
 $$;
+
+-- ---------------------------------------------------------------------------
+-- Sessions: the server decides whether a session counts
+-- ---------------------------------------------------------------------------
+
+-- Mirrors src/utils/effort.ts. Deliberately more permissive than the floors the
+-- app enforces: the client already holds the real thresholds, and rejecting an
+-- honest session over a rounding difference would be far worse than letting a
+-- slightly fast one through.
+create or replace function public.session_time_floor(
+  verses_learned integer,
+  surahs_reviewed integer
+)
+returns integer
+language sql
+immutable
+set search_path = ''
+as $$
+  select greatest(0, verses_learned) * 3 + greatest(0, surahs_reviewed) * 5;
+$$;
+
+revoke all on function public.session_time_floor(integer, integer) from public;
+revoke all on function public.session_time_floor(integer, integer) from anon;
+
+/*
+ * Records one completed session, or refuses it.
+ *
+ * This is what makes the family dashboard mean something. Everything a parent
+ * sees used to come from a JSON blob the child wrote themselves, so a child could
+ * simply hand their parents a 365-day streak. The figures now come from this
+ * table, and this table only accepts sessions that could actually have been
+ * worked:
+ *
+ *  - the time claimed must cover a plausible minimum per verse and per review,
+ *    which is what stops tapping straight through;
+ *  - it cannot exceed the wall-clock time between start and finish, so no amount
+ *    of tapping fabricates minutes;
+ *  - it is bounded, so idling does not fabricate them either;
+ *  - a resubmitted session (the offline queue retries) is accepted once.
+ *
+ * Honest limit, stated plainly: a determined child who calls this RPC directly
+ * can still submit plausible-but-false numbers. Preventing that needs device
+ * attestation. What this does prevent is cheating from inside the app, which is
+ * the real case.
+ */
+create or replace function public.record_daily_session(
+  client_id text,
+  session_date date,
+  started_at timestamptz,
+  completed_at timestamptz,
+  active_seconds integer,
+  xp_earned integer,
+  surahs_reviewed integer,
+  verses_learned integer,
+  is_perfect boolean default false
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  current_user_id uuid := auth.uid();
+  elapsed_seconds integer;
+  floor_seconds integer;
+  day_count integer;
+begin
+  if current_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if client_id is null or length(client_id) = 0 or length(client_id) > 100 then
+    raise exception 'Identifiant de session invalide.';
+  end if;
+
+  -- Already recorded: the offline queue retried. Accept without counting twice.
+  if exists (
+    select 1
+    from public.session_submissions submission
+    where submission.user_id = current_user_id
+      and submission.client_id = record_daily_session.client_id
+  ) then
+    return jsonb_build_object('accepted', true, 'duplicate', true);
+  end if;
+
+  if verses_learned < 0 or verses_learned > 50
+     or surahs_reviewed < 0 or surahs_reviewed > 20
+     or xp_earned < 0 or xp_earned > 2000
+  then
+    return jsonb_build_object('accepted', false, 'reason', 'implausible_counts');
+  end if;
+
+  if verses_learned + surahs_reviewed = 0 then
+    return jsonb_build_object('accepted', false, 'reason', 'empty_session');
+  end if;
+
+  if started_at is null or completed_at is null
+     or completed_at < started_at
+     or completed_at > now() + interval '5 minutes'
+  then
+    return jsonb_build_object('accepted', false, 'reason', 'implausible_timestamps');
+  end if;
+
+  -- The session date must match when it was actually finished, so a session
+  -- cannot be back-dated onto a day that was missed.
+  if abs(record_daily_session.session_date - record_daily_session.completed_at::date) > 1 then
+    return jsonb_build_object('accepted', false, 'reason', 'date_mismatch');
+  end if;
+
+  elapsed_seconds := ceil(extract(epoch from (completed_at - started_at)))::integer;
+  floor_seconds := public.session_time_floor(verses_learned, surahs_reviewed);
+
+  -- Tapped straight through: not enough time to have read anything.
+  if active_seconds < floor_seconds then
+    return jsonb_build_object(
+      'accepted', false,
+      'reason', 'too_fast',
+      'required_seconds', floor_seconds
+    );
+  end if;
+
+  -- Cannot claim more focused time than the session actually lasted, nor more
+  -- than an hour, nor more than its items could plausibly hold.
+  if active_seconds > elapsed_seconds + 5
+     or active_seconds > 3600
+     or active_seconds > 180 * (verses_learned + surahs_reviewed)
+  then
+    return jsonb_build_object('accepted', false, 'reason', 'implausible_duration');
+  end if;
+
+  select coalesce(day.session_count, 0)
+  into day_count
+  from public.daily_sessions day
+  where day.user_id = current_user_id
+    and day.session_date = record_daily_session.session_date;
+
+  if coalesce(day_count, 0) >= 20 then
+    return jsonb_build_object('accepted', false, 'reason', 'daily_limit');
+  end if;
+
+  insert into public.session_submissions (user_id, client_id, session_date)
+  values (
+    current_user_id,
+    record_daily_session.client_id,
+    record_daily_session.session_date
+  );
+
+  insert into public.daily_sessions as day (
+    user_id, session_date, completed, completed_at,
+    duration_seconds, active_seconds, session_count,
+    xp_earned, surahs_reviewed, verses_learned, is_perfect
+  )
+  values (
+    current_user_id,
+    record_daily_session.session_date,
+    true,
+    record_daily_session.completed_at,
+    record_daily_session.active_seconds,
+    record_daily_session.active_seconds,
+    1,
+    record_daily_session.xp_earned,
+    record_daily_session.surahs_reviewed,
+    record_daily_session.verses_learned,
+    record_daily_session.is_perfect
+  )
+  on conflict (user_id, session_date) do update
+  set completed = true,
+      completed_at = greatest(day.completed_at, excluded.completed_at),
+      duration_seconds = day.duration_seconds + excluded.duration_seconds,
+      active_seconds = day.active_seconds + excluded.active_seconds,
+      session_count = day.session_count + 1,
+      xp_earned = day.xp_earned + excluded.xp_earned,
+      surahs_reviewed = day.surahs_reviewed + excluded.surahs_reviewed,
+      verses_learned = day.verses_learned + excluded.verses_learned,
+      is_perfect = day.is_perfect or excluded.is_perfect;
+
+  return jsonb_build_object('accepted', true, 'duplicate', false);
+end;
+$$;
+
+revoke all on function public.record_daily_session(
+  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean
+) from public;
+revoke all on function public.record_daily_session(
+  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean
+) from anon;
+grant execute on function public.record_daily_session(
+  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean
+) to authenticated;
+
+-- Consecutive days ending today or yesterday, computed from what the server
+-- accepted -- not from what the device claims.
+create or replace function public.verified_streak(target_user_id uuid)
+returns integer
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  with days as (
+    select distinct day.session_date
+    from public.daily_sessions day
+    where day.user_id = target_user_id
+      and day.session_count > 0
+  ),
+  ordered as (
+    select
+      days.session_date,
+      days.session_date
+        + ((row_number() over (order by days.session_date desc)) || ' days')::interval
+        as anchor
+    from days
+  ),
+  latest as (
+    select ordered.anchor
+    from ordered
+    where ordered.session_date >= current_date - 1
+    order by ordered.session_date desc
+    limit 1
+  )
+  select coalesce((
+    select count(*)::integer
+    from ordered
+    where ordered.anchor = (select latest.anchor from latest)
+  ), 0);
+$$;
+
+revoke all on function public.verified_streak(uuid) from public;
+revoke all on function public.verified_streak(uuid) from anon;
+revoke all on function public.verified_streak(uuid) from authenticated;
+
+-- The longest run of consecutive days ever recorded, from accepted sessions only.
+create or replace function public.verified_longest_streak(target_user_id uuid)
+returns integer
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  with days as (
+    select distinct day.session_date
+    from public.daily_sessions day
+    where day.user_id = target_user_id
+      and day.session_count > 0
+  ),
+  islands as (
+    select
+      days.session_date
+        - ((row_number() over (order by days.session_date)) || ' days')::interval
+        as island
+    from days
+  )
+  select coalesce(max(run.length), 0)::integer
+  from (
+    select count(*) as length
+    from islands
+    group by islands.island
+  ) run;
+$$;
+
+revoke all on function public.verified_longest_streak(uuid) from public;
+revoke all on function public.verified_longest_streak(uuid) from anon;
+revoke all on function public.verified_longest_streak(uuid) from authenticated;

@@ -18,6 +18,7 @@ function reset() {
     progress: {},
     stats: createDefaultStats(),
     history: [],
+    pendingSessions: [],
     activeSession: undefined,
     lastSummary: undefined,
     syncMeta: { dirty: false },
@@ -49,6 +50,7 @@ function learningState(surahNumber: number, totalVerses: number, learningQueue: 
       verseStart: totalVerses - 1,
       versesTarget: 1,
       versesLearned: 0,
+      activeSeconds: 0
     },
   });
 }
@@ -278,6 +280,7 @@ test('an abandoned session is credited to the day it was worked, not today', () 
       verseStart: 0,
       versesTarget: 2,
       versesLearned: 2,
+      activeSeconds: 60
     },
   });
 
@@ -303,17 +306,71 @@ test('an overnight session does not inflate the recorded duration', () => {
       verseStart: 0,
       versesTarget: 1,
       versesLearned: 1,
+      activeSeconds: 30
     },
   });
 
   const summary = useQuranStore.getState().completeDailySession();
 
   assert.ok(summary);
-  assert.ok(
-    summary!.durationSeconds <= 3600,
-    `duration ${summary!.durationSeconds}s should be clamped to one hour`,
+  // The session was open for 14 hours but only 30 seconds were spent on the text.
+  // Wall clock used to be the recorded duration, which handed out hours of
+  // "recitation" to anyone who left the app open.
+  assert.equal(
+    summary!.durationSeconds,
+    30,
+    'the time actually spent is recorded, not the time the app was open',
   );
-  assert.ok(useQuranStore.getState().stats.totalMinutes <= 60);
+  assert.equal(useQuranStore.getState().stats.totalMinutes, 1);
+});
+
+test('a session tapped through earns no recitation time', () => {
+  reset();
+  useQuranStore.setState({
+    activeSession: {
+      date: dateKey(),
+      startedAt: new Date().toISOString(),
+      reviewQueue: [],
+      reviewIndex: 0,
+      ratings: [],
+      verseStart: 0,
+      versesTarget: 3,
+      versesLearned: 3,
+      activeSeconds: 0, // three verses "validated" instantly
+    },
+  });
+
+  const summary = useQuranStore.getState().completeDailySession();
+
+  assert.equal(summary?.durationSeconds, 0, 'no time claimed, none credited');
+});
+
+test('a completed session is queued for the server to judge', () => {
+  reset();
+  useQuranStore.setState({
+    activeSession: {
+      date: dateKey(),
+      startedAt: new Date(Date.now() - 120_000).toISOString(),
+      reviewQueue: [],
+      reviewIndex: 0,
+      ratings: [],
+      verseStart: 0,
+      versesTarget: 1,
+      versesLearned: 1,
+      activeSeconds: 45,
+    },
+  });
+
+  const summary = useQuranStore.getState().completeDailySession();
+  const [pending] = useQuranStore.getState().pendingSessions;
+
+  assert.ok(pending, 'queued rather than posted, so an offline session survives');
+  assert.equal(pending.activeSeconds, 45);
+  assert.equal(pending.versesLearned, 1);
+  assert.equal(pending.xpEarned, summary?.xpEarned);
+
+  useQuranStore.getState().clearPendingSessions([pending.id]);
+  assert.deepEqual(useQuranStore.getState().pendingSessions, [], 'cleared once accepted');
 });
 
 test("yesterday's leftover session does not steal today's daily credit", () => {
@@ -340,6 +397,7 @@ test("yesterday's leftover session does not steal today's daily credit", () => {
       verseStart: 0,
       versesTarget: 1,
       versesLearned: 1,
+      activeSeconds: 30
     },
   });
 

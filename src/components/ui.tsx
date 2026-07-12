@@ -80,6 +80,7 @@ export function PrimaryButton({
   icon: IconComponent,
   disabled,
   loading,
+  progress,
   variant = 'gold',
   compact,
   style,
@@ -89,27 +90,48 @@ export function PrimaryButton({
   icon?: Icon;
   disabled?: boolean;
   loading?: boolean;
+  /**
+   * 0..1. Below 1 the button is not yet available and fills up as it approaches
+   * it — the wait is shown rather than merely enforced, so a blocked button
+   * reads as "not yet" instead of "broken".
+   */
+  progress?: number;
   variant?: 'gold' | 'surface' | 'ghost' | 'danger';
   compact?: boolean;
   style?: StyleProp<ViewStyle>;
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
+  const filling = progress !== undefined && progress < 1;
+  const fill = Math.max(0, Math.min(1, progress ?? 1));
+  const inert = Boolean(disabled) || Boolean(loading) || filling;
+
   return (
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
-      disabled={disabled || loading}
+      accessibilityState={{ disabled: inert }}
+      disabled={inert}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
         styles[`button_${variant}`],
         compact && styles.buttonCompact,
+        filling && styles.buttonFilling,
         (disabled || loading) && styles.buttonDisabled,
         pressed && styles.buttonPressed,
         style,
       ]}
     >
+      {filling ? (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.buttonFill,
+            { backgroundColor: withAlpha(colors.gold, 0.25), width: `${fill * 100}%` },
+          ]}
+        />
+      ) : null}
       {loading ? (
         <ActivityIndicator color={variant === 'gold' ? colors.backgroundDeep : colors.text} />
       ) : (
@@ -426,6 +448,19 @@ function createStyles(colors: Palette) {
     buttonCompact: {
       minHeight: 42,
       paddingHorizontal: spacing.md,
+    },
+    // Only while filling: clipping the fill to the rounded corners must not clip
+    // the resting button's shadow on the platforms that draw it from the border box.
+    buttonFilling: {
+      // Dimmed, but far less than `buttonDisabled`: the button is coming, not dead.
+      opacity: 0.72,
+      overflow: 'hidden',
+    },
+    buttonFill: {
+      bottom: 0,
+      left: 0,
+      position: 'absolute',
+      top: 0,
     },
     buttonDisabled: {
       opacity: 0.45,

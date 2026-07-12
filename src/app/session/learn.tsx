@@ -18,10 +18,12 @@ import { VerseCard } from '@/components/VerseCard';
 import { Card, IconButton, PrimaryButton, ProgressBar } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
 import { getVerses } from '@/data/verses';
+import { useDwell } from '@/hooks/useDwell';
 import { useQuranAudio } from '@/providers/AudioProvider';
 import { useTheme } from '@/providers/ThemeProvider';
 import { useQuranStore } from '@/store/useQuranStore';
 import { Palette, spacing, typography } from '@/theme';
+import { minVerseSeconds } from '@/utils/effort';
 
 export default function LearnSessionScreen() {
   const { colors } = useTheme();
@@ -38,6 +40,14 @@ export default function LearnSessionScreen() {
   const target = session?.versesTarget ?? 0;
   const learned = session?.versesLearned ?? 0;
 
+  // Time spent on *this* verse, background time excluded. The clock restarts on
+  // every verse, and it survives the study/test toggle: switching mode is part of
+  // the work, not a way to start over.
+  const { seconds } = useDwell(verse?.verseKey);
+  const requiredSeconds = minVerseSeconds(verse);
+  const ready = seconds >= requiredSeconds;
+  const remainingSeconds = Math.max(0, requiredSeconds - seconds);
+
   useEffect(() => {
     if (!session) router.replace('/(tabs)');
   }, [session]);
@@ -47,9 +57,10 @@ export default function LearnSessionScreen() {
   }, [verse?.verseKey]);
 
   async function validate() {
+    if (!ready) return;
     await stop();
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    learnCurrentVerse();
+    learnCurrentVerse(seconds);
     if (learned + 1 >= target) router.replace('/session/complete');
   }
 
@@ -167,7 +178,13 @@ export default function LearnSessionScreen() {
                 icon={learned + 1 >= target ? Check : ChevronRight}
                 label={learned + 1 >= target ? 'Je peux le réciter' : 'Verset mémorisé'}
                 onPress={() => void validate()}
+                progress={seconds / requiredSeconds}
               />
+              {ready ? null : (
+                <Text style={styles.dwellHint}>
+                  Prends le temps de lire ce verset — encore {remainingSeconds} s.
+                </Text>
+              )}
               <PrimaryButton
                 compact
                 icon={RotateCcw}
@@ -268,6 +285,12 @@ function createStyles(colors: Palette) {
   },
   testActions: {
     gap: spacing.sm,
+  },
+  dwellHint: {
+    color: colors.textFaint,
+    fontFamily: typography.regular,
+    fontSize: 11,
+    textAlign: 'center',
   },
   empty: {
     alignItems: 'center',

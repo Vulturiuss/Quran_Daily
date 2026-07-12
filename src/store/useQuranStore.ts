@@ -7,6 +7,7 @@ import { getVerses } from '@/data/verses';
 import {
   ActiveSession,
   CloudSnapshot,
+  PendingSession,
   ReviewRating,
   SessionRecord,
   SessionSummary,
@@ -16,6 +17,7 @@ import {
   UserSurahProgress,
 } from '@/types';
 import { addDays, dateKey } from '@/utils/date';
+import { countableSeconds } from '@/utils/effort';
 import {
   advanceDailyStreak,
   calculateSessionXP,
@@ -54,6 +56,9 @@ const defaultSyncMeta: SyncMeta = {
 // spent reciting: a session left open overnight would otherwise add ~840 minutes
 // to the user's total. One hour is well above any real daily goal (max 15 min).
 const MAX_SESSION_SECONDS = 3600;
+
+// A long offline stretch should not grow the queue without bound. Oldest first.
+const MAX_PENDING_SESSIONS = 200;
 
 function changedNow(previous?: SyncMeta): SyncMeta {
   return {
@@ -116,6 +121,9 @@ export interface QuranState {
   syncMeta: SyncMeta;
   activeSession?: ActiveSession;
   lastSummary?: SessionSummary;
+  /** Completed sessions not yet accepted by the server. Survives being offline. */
+  pendingSessions: PendingSession[];
+  clearPendingSessions: (ids: string[]) => void;
   setHydrated: (value: boolean) => void;
   finishAccountOnboarding: () => void;
   refreshGamification: (freezeAllowance: number) => void;
@@ -140,8 +148,9 @@ export interface QuranState {
   removeFromLearningQueue: (surahNumber: number) => void;
   reorderLearningQueue: (surahNumber: number, direction: 'up' | 'down') => void;
   startDailySession: (access?: SessionAccess) => void;
-  rateCurrentReview: (rating: ReviewRating) => void;
-  learnCurrentVerse: () => void;
+  /** `dwellSeconds` is the time actually spent on this item; see utils/effort.ts. */
+  rateCurrentReview: (rating: ReviewRating, dwellSeconds?: number) => void;
+  learnCurrentVerse: (dwellSeconds?: number) => void;
   completeDailySession: () => SessionSummary | undefined;
   clearActiveSession: () => void;
   applyCloudSnapshot: (
@@ -167,6 +176,7 @@ export const useQuranStore = create<QuranState>()(
       progress: {},
       stats: createDefaultStats(),
       history: [],
+      pendingSessions: [],
       syncMeta: defaultSyncMeta,
 
       setHydrated: (value) => set({ hydrated: value }),
@@ -223,6 +233,7 @@ export const useQuranStore = create<QuranState>()(
           progress,
           stats: createDefaultStats(),
           history: [],
+      pendingSessions: [],
           syncMeta: {
             dirty: true,
             cloudUserId,
@@ -448,12 +459,13 @@ export const useQuranStore = create<QuranState>()(
             versesLearned: 0,
             isBonus: access?.isBonus ?? false,
             freezeAllowance: access?.freezeAllowance ?? 1,
+            activeSeconds: 0,
           },
           lastSummary: undefined,
         });
       },
 
-      rateCurrentReview: (rating) =>
+      rateCurrentReview: (rating, dwellSeconds = 0) =>
         set((state) => {
           const session = state.activeSession;
           if (!session) return state;
@@ -474,12 +486,14 @@ export const useQuranStore = create<QuranState>()(
               ...session,
               reviewIndex: session.reviewIndex + 1,
               ratings: [...session.ratings, rating],
+              activeSeconds:
+                (session.activeSeconds ?? 0) + countableSeconds(dwellSeconds),
             },
             syncMeta: changedNow(state.syncMeta),
           };
         }),
 
-      learnCurrentVerse: () =>
+      learnCurrentVerse: (dwellSeconds = 0) =>
         set((state) => {
           const session = state.activeSession;
           const surahNumber = session?.learningSurah;
@@ -540,6 +554,8 @@ export const useQuranStore = create<QuranState>()(
               ...session,
               versesLearned: session.versesLearned + 1,
               completedSurah: completedNow ? surahNumber : session.completedSurah,
+              activeSeconds:
+                (session.activeSeconds ?? 0) + countableSeconds(dwellSeconds),
             },
             syncMeta: changedNow(state.syncMeta),
           };
@@ -559,11 +575,20 @@ export const useQuranStore = create<QuranState>()(
           return undefined;
         }
 
-        const durationSeconds = Math.min(
-          MAX_SESSION_SECONDS,
-          Math.max(
-            30,
-            Math.round((Date.now() - new Date(session.startedAt).getTime()) / 1000),
+        // Time actually spent on the text, accumulated item by item and capped
+        // per item — not wall clock. Leaving the app open used to earn an hour of
+        // "recitation", and a session tapped through in five seconds still earned
+        // the 30-second floor. Bounded by the wall clock all the same, so a
+        // tampered accumulator cannot claim more time than the session lasted.
+        const elapsedSeconds = Math.round(
+          (Date.now() - new Date(session.startedAt).getTime()) / 1000,
+        );
+        const durationSeconds = Math.max(
+          0,
+          Math.min(
+            MAX_SESSION_SECONDS,
+            session.activeSeconds ?? 0,
+            elapsedSeconds,
           ),
         );
         const completedAt = new Date();
@@ -651,17 +676,40 @@ export const useQuranStore = create<QuranState>()(
           unlockedBadgeIds,
         };
 
+        // Queued for the server, which is the only judge of what a parent sees.
+        // Queued rather than posted directly so an offline session is not lost:
+        // the app has to stay usable without a network.
+        const pending: PendingSession = {
+          id: session.startedAt,
+          date: today,
+          startedAt: session.startedAt,
+          completedAt: completedAt.toISOString(),
+          activeSeconds: durationSeconds,
+          xpEarned,
+          surahsReviewed: session.reviewIndex,
+          versesLearned: session.versesLearned,
+          isPerfect,
+        };
+
         set({
           stats: nextStats,
           history: existingToday
             ? state.history.map((item) => (item.date === today ? record : item))
             : [record, ...state.history],
+          pendingSessions: [...state.pendingSessions, pending].slice(-MAX_PENDING_SESSIONS),
           syncMeta: changedNow(state.syncMeta),
           activeSession: undefined,
           lastSummary: summary,
         });
         return summary;
       },
+
+      clearPendingSessions: (ids) =>
+        set((state) => ({
+          pendingSessions: state.pendingSessions.filter(
+            (item) => !ids.includes(item.id),
+          ),
+        })),
 
       clearActiveSession: () => set({ activeSession: undefined }),
 
@@ -696,6 +744,7 @@ export const useQuranStore = create<QuranState>()(
           progress: {},
           stats: createDefaultStats(),
           history: [],
+      pendingSessions: [],
           syncMeta: {
             dirty: false,
             cloudUserId,
@@ -712,6 +761,7 @@ export const useQuranStore = create<QuranState>()(
           progress: {},
           stats: createDefaultStats(),
           history: [],
+      pendingSessions: [],
           syncMeta: defaultSyncMeta,
           activeSession: undefined,
           lastSummary: undefined,
@@ -722,7 +772,10 @@ export const useQuranStore = create<QuranState>()(
       storage: createJSONStorage(() => AsyncStorage),
       // v6 heals learning state a queued-and-active surah could corrupt: it
       // promoted itself on completion and stayed pinned at 100%.
-      version: 6,
+      // v7 adds the pending-session queue and the per-item active time. Sessions
+      // recorded before it keep their wall-clock duration — the honest figure
+      // starts from here rather than rewriting history.
+      version: 7,
       migrate: (persistedState, _version) => {
         const state = persistedState as Partial<QuranState>;
         const now = new Date();
@@ -738,6 +791,10 @@ export const useQuranStore = create<QuranState>()(
           progress: healed.progress,
           stats: normalizeStats(state.stats, state.stats?.freezeAllowance ?? 1, now),
           history: migratedHistory,
+          pendingSessions: state.pendingSessions ?? [],
+          activeSession: state.activeSession
+            ? { ...state.activeSession, activeSeconds: state.activeSession.activeSeconds ?? 0 }
+            : undefined,
           syncMeta: state.syncMeta ?? defaultSyncMeta,
         };
       },
