@@ -1,6 +1,18 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { BookOpenCheck, Brain, Check, Ear, Play, Sparkles, Target } from 'lucide-react-native';
+import {
+  ArrowDown,
+  ArrowUp,
+  BookOpenCheck,
+  Brain,
+  Check,
+  Ear,
+  Play,
+  Repeat,
+  Sparkles,
+  Target,
+  X,
+} from 'lucide-react-native';
 
 import { AppScreen } from '@/components/AppScreen';
 import { OrnamentalCard } from '@/components/OrnamentalCard';
@@ -17,6 +29,8 @@ export default function LearnScreen() {
   const learning = useQuranStore(selectLearningProgress);
   const profile = useQuranStore((state) => state.profile);
   const startDailySession = useQuranStore((state) => state.startDailySession);
+  const removeFromLearningQueue = useQuranStore((state) => state.removeFromLearningQueue);
+  const reorderLearningQueue = useQuranStore((state) => state.reorderLearningQueue);
   const { configured, isPremium } = useSubscription();
   const hasFullAccess = !configured || isPremium;
   const surah = getSurah(learning?.surahNumber);
@@ -74,6 +88,15 @@ export default function LearnScreen() {
             <Eyebrow>Sourate en cours</Eyebrow>
             <Text style={styles.surahName}>{surah.nameTranslit}</Text>
             <Text style={styles.surahMeta}>{surah.nameFr}</Text>
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => router.push('/library')}
+              style={styles.switchSurahLink}
+            >
+              <Repeat color={colors.goldSoft} size={13} />
+              <Text style={styles.switchSurahText}>Changer de sourate</Text>
+            </Pressable>
           </View>
           <Text style={styles.surahArabic}>{surah.name}</Text>
         </View>
@@ -143,11 +166,143 @@ export default function LearnScreen() {
           </View>
         </View>
       </Card>
+
+      <SectionHeader title="À suivre" />
+      {profile.learningQueue.length === 0 ? (
+        <Card style={styles.queueEmpty}>
+          <Text style={styles.queueEmptyText}>
+            Ajoute de futures sourates depuis leur fiche dans la bibliothèque : la première de la
+            file prendra automatiquement le relais dès que tu termineras la sourate en cours.
+          </Text>
+          <PrimaryButton
+            compact
+            label="Ouvrir la bibliothèque"
+            onPress={() => router.push('/library')}
+            variant="ghost"
+          />
+        </Card>
+      ) : (
+        <Card style={styles.queueCard}>
+          {profile.learningQueue.map((surahNumber, index) => {
+            const queuedSurah = getSurah(surahNumber);
+            if (!queuedSurah) return null;
+            return (
+              <View key={surahNumber} style={styles.queueRow}>
+                <Text style={styles.queuePosition}>{index + 1}</Text>
+                <View style={styles.queueCopy}>
+                  <Text style={styles.queueName}>{queuedSurah.nameTranslit}</Text>
+                  <Text style={styles.queueMeta}>{queuedSurah.totalVerses} versets</Text>
+                </View>
+                <View style={styles.queueActions}>
+                  <Pressable
+                    accessibilityLabel="Monter dans la file"
+                    accessibilityRole="button"
+                    disabled={index === 0}
+                    hitSlop={6}
+                    onPress={() => reorderLearningQueue(surahNumber, 'up')}
+                    style={[styles.queueActionButton, index === 0 && styles.queueActionDisabled]}
+                  >
+                    <ArrowUp color={colors.textMuted} size={15} />
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="Descendre dans la file"
+                    accessibilityRole="button"
+                    disabled={index === profile.learningQueue.length - 1}
+                    hitSlop={6}
+                    onPress={() => reorderLearningQueue(surahNumber, 'down')}
+                    style={[
+                      styles.queueActionButton,
+                      index === profile.learningQueue.length - 1 && styles.queueActionDisabled,
+                    ]}
+                  >
+                    <ArrowDown color={colors.textMuted} size={15} />
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="Retirer de la file"
+                    accessibilityRole="button"
+                    hitSlop={6}
+                    onPress={() => removeFromLearningQueue(surahNumber)}
+                    style={styles.queueActionButton}
+                  >
+                    <X color={colors.error} size={15} />
+                  </Pressable>
+                </View>
+              </View>
+            );
+          })}
+        </Card>
+      )}
     </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  switchSurahLink: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 5,
+    marginTop: spacing.sm,
+  },
+  switchSurahText: {
+    color: colors.goldSoft,
+    fontFamily: typography.bold,
+    fontSize: 12,
+  },
+  queueEmpty: {
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  queueEmptyText: {
+    color: colors.textMuted,
+    fontFamily: typography.regular,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  queueCard: {
+    padding: spacing.sm,
+  },
+  queueRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  queuePosition: {
+    color: colors.textFaint,
+    fontFamily: typography.extraBold,
+    fontSize: 14,
+    width: 18,
+  },
+  queueCopy: {
+    flex: 1,
+  },
+  queueName: {
+    color: colors.text,
+    fontFamily: typography.bold,
+    fontSize: 14,
+  },
+  queueMeta: {
+    color: colors.textMuted,
+    fontFamily: typography.regular,
+    fontSize: 11,
+    marginTop: 1,
+  },
+  queueActions: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  queueActionButton: {
+    alignItems: 'center',
+    height: 30,
+    justifyContent: 'center',
+    width: 30,
+  },
+  queueActionDisabled: {
+    opacity: 0.3,
+  },
   empty: {
     alignItems: 'center',
     gap: spacing.md,

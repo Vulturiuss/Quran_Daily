@@ -25,16 +25,16 @@ import {
 import { AppScreen } from '@/components/AppScreen';
 import { ArabicText } from '@/components/ArabicText';
 import { OrnamentalCard } from '@/components/OrnamentalCard';
-import { Card, Eyebrow, Pill, PrimaryButton, ProgressBar } from '@/components/ui';
+import { Card, Eyebrow, Pill, PrimaryButton, ProgressBar, TimeStepper } from '@/components/ui';
 import { getSurah, onboardingSurahs } from '@/data/surahs';
+import { useTheme } from '@/providers/ThemeProvider';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { enableSmartReminders } from '@/services/notifications';
 import { isFreeSurah } from '@/services/subscription';
 import { useQuranStore } from '@/store/useQuranStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography } from '@/theme';
 
 const learnableNumbers = [108, 109, 110, 111, 107, 106, 105, 103, 1];
-const reminderTimes = ['07:00', '12:30', '20:00', '22:00'];
 const goals = [
   { minutes: 3 as const, reviews: 1, verses: 1, label: 'Doucement' },
   { minutes: 5 as const, reviews: 2, verses: 2, label: 'Régulier' },
@@ -43,6 +43,8 @@ const goals = [
 ];
 
 export default function OnboardingScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const completeOnboarding = useQuranStore((state) => state.completeOnboarding);
   const { configured, isPremium } = useSubscription();
   const hasFullAccess = !configured || isPremium;
@@ -295,14 +297,7 @@ export default function OnboardingScreen() {
               </View>
               {notificationsEnabled ? (
                 <View style={styles.timeRow}>
-                  {reminderTimes.map((time) => (
-                    <Pill
-                      key={time}
-                      label={time}
-                      onPress={() => setNotificationTime(time)}
-                      selected={notificationTime === time}
-                    />
-                  ))}
+                  <TimeStepper onChange={setNotificationTime} value={notificationTime} />
                 </View>
               ) : null}
             </Card>
@@ -330,7 +325,8 @@ export default function OnboardingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   flex: {
     backgroundColor: colors.background,
     flex: 1,
@@ -685,4 +681,5 @@ const styles = StyleSheet.create({
     marginTop: 'auto',
     paddingTop: spacing.xl,
   },
-});
+  });
+}

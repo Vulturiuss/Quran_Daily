@@ -14,6 +14,8 @@ const profile: UserProfile = {
   preferredReciter: 'mishary',
   showReviewTransliteration: false,
   showReviewTranslation: false,
+  theme: 'teal',
+  learningQueue: [],
 };
 
 function progress(

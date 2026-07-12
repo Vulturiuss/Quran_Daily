@@ -41,6 +41,8 @@ const defaultProfile: UserProfile = {
   preferredReciter: 'mishary',
   showReviewTransliteration: false,
   showReviewTranslation: false,
+  theme: 'teal',
+  learningQueue: [],
 };
 
 const defaultSyncMeta: SyncMeta = {
@@ -118,6 +120,10 @@ export interface QuranState {
   updateProfile: (input: Partial<UserProfile>) => void;
   setLearningSurah: (surahNumber: number) => void;
   markSurahKnown: (surahNumber: number) => void;
+  markSurahForgotten: (surahNumber: number) => void;
+  addToLearningQueue: (surahNumber: number) => void;
+  removeFromLearningQueue: (surahNumber: number) => void;
+  reorderLearningQueue: (surahNumber: number, direction: 'up' | 'down') => void;
   startDailySession: (access?: SessionAccess) => void;
   rateCurrentReview: (rating: ReviewRating) => void;
   learnCurrentVerse: () => void;
@@ -237,11 +243,7 @@ export const useQuranStore = create<QuranState>()(
             : makeProgress(surahNumber, 'learning', updatedAt);
           return {
             progress: next,
-            syncMeta: {
-              dirty: true,
-              lastLocalChangeAt: updatedAt,
-              lastSyncedAt: state.syncMeta.lastSyncedAt,
-            },
+            syncMeta: changedNow(state.syncMeta),
           };
         }),
 
@@ -260,15 +262,73 @@ export const useQuranStore = create<QuranState>()(
                 updatedAt,
               },
             },
-            syncMeta: {
-              dirty: true,
-              lastLocalChangeAt: updatedAt,
-              lastSyncedAt: state.syncMeta.lastSyncedAt,
+            syncMeta: changedNow(state.syncMeta),
+          };
+        }),
+
+      markSurahForgotten: (surahNumber) =>
+        set((state) => {
+          const existing = state.progress[surahNumber];
+          if (!existing || existing.status !== 'known') return state;
+          const updatedAt = new Date().toISOString();
+          return {
+            progress: {
+              ...state.progress,
+              [surahNumber]: makeProgress(surahNumber, 'locked', updatedAt),
             },
+            syncMeta: changedNow(state.syncMeta),
+          };
+        }),
+
+      addToLearningQueue: (surahNumber) =>
+        set((state) => {
+          if (state.profile.learningQueue.includes(surahNumber)) return state;
+          return {
+            profile: {
+              ...state.profile,
+              learningQueue: [...state.profile.learningQueue, surahNumber],
+            },
+            syncMeta: changedNow(state.syncMeta),
+          };
+        }),
+
+      removeFromLearningQueue: (surahNumber) =>
+        set((state) => ({
+          profile: {
+            ...state.profile,
+            learningQueue: state.profile.learningQueue.filter(
+              (number) => number !== surahNumber,
+            ),
+          },
+          syncMeta: changedNow(state.syncMeta),
+        })),
+
+      reorderLearningQueue: (surahNumber, direction) =>
+        set((state) => {
+          const queue = [...state.profile.learningQueue];
+          const index = queue.indexOf(surahNumber);
+          const swapWith = direction === 'up' ? index - 1 : index + 1;
+          if (index === -1 || swapWith < 0 || swapWith >= queue.length) return state;
+          [queue[index], queue[swapWith]] = [queue[swapWith], queue[index]];
+          return {
+            profile: { ...state.profile, learningQueue: queue },
+            syncMeta: changedNow(state.syncMeta),
           };
         }),
 
       startDailySession: (access) => {
+        const stale = get().activeSession;
+        if (
+          stale &&
+          stale.date !== dateKey() &&
+          (stale.reviewIndex > 0 || stale.versesLearned > 0)
+        ) {
+          // An unfinished session from a previous day would otherwise be
+          // silently discarded below, forfeiting its XP/streak credit and
+          // making that day look missed for streak-freeze purposes.
+          get().completeDailySession();
+        }
+
         const state = get();
         if (state.activeSession?.date === dateKey()) return;
 
@@ -344,11 +404,7 @@ export const useQuranStore = create<QuranState>()(
               reviewIndex: session.reviewIndex + 1,
               ratings: [...session.ratings, rating],
             },
-            syncMeta: {
-              dirty: true,
-              lastLocalChangeAt: updatedAt,
-              lastSyncedAt: state.syncMeta.lastSyncedAt,
-            },
+            syncMeta: changedNow(state.syncMeta),
           };
         }),
 
@@ -366,27 +422,42 @@ export const useQuranStore = create<QuranState>()(
           const completedNow = completed && current.status !== 'known';
           const updatedAt = new Date().toISOString();
 
-          return {
-            progress: {
-              ...state.progress,
-              [surahNumber]: {
-                ...current,
-                versesLearned,
-                status: completed ? 'known' : 'learning',
-                nextReviewAt: completed ? updatedAt : current.nextReviewAt,
-                updatedAt,
-              },
+          const nextProgress: Record<number, UserSurahProgress> = {
+            ...state.progress,
+            [surahNumber]: {
+              ...current,
+              versesLearned,
+              status: completed ? 'known' : 'learning',
+              nextReviewAt: completed ? updatedAt : current.nextReviewAt,
+              updatedAt,
             },
+          };
+
+          // When the active surah is just completed, auto-promote the next queued
+          // surah to 'learning' so the user never lands on an empty session plan.
+          let nextQueue = state.profile.learningQueue;
+          if (completedNow && nextQueue.length > 0) {
+            const [promoted, ...rest] = nextQueue;
+            nextQueue = rest;
+            nextProgress[promoted] = {
+              ...(nextProgress[promoted] ?? makeProgress(promoted, 'learning', updatedAt)),
+              status: 'learning',
+              updatedAt,
+            };
+          }
+
+          return {
+            progress: nextProgress,
+            profile:
+              nextQueue === state.profile.learningQueue
+                ? state.profile
+                : { ...state.profile, learningQueue: nextQueue },
             activeSession: {
               ...session,
               versesLearned: session.versesLearned + 1,
               completedSurah: completedNow ? surahNumber : session.completedSurah,
             },
-            syncMeta: {
-              dirty: true,
-              lastLocalChangeAt: updatedAt,
-              lastSyncedAt: state.syncMeta.lastSyncedAt,
-            },
+            syncMeta: changedNow(state.syncMeta),
           };
         }),
 
@@ -407,7 +478,10 @@ export const useQuranStore = create<QuranState>()(
         const today = dateKey();
         const existingRecord = state.history.find((record) => record.date === today);
         const existingToday = Boolean(existingRecord);
-        const isBonus = session.isBonus || existingToday;
+        // `session.isBonus` only controls which surahs are eligible for review
+        // (see startDailySession); whether this session counts toward the daily
+        // streak/XP depends solely on whether today's credit was already earned.
+        const isBonus = existingToday;
         const previous = sortedHistory(state.history).find((record) => record.date !== today);
         const freezeAllowance = session.freezeAllowance ?? state.stats.freezeAllowance ?? 1;
         const normalizedStats = normalizeStats(state.stats, freezeAllowance, completedAt);
@@ -540,7 +614,7 @@ export const useQuranStore = create<QuranState>()(
     {
       name: 'quran-daily-state',
       storage: createJSONStorage(() => AsyncStorage),
-      version: 4,
+      version: 5,
       migrate: (persistedState, version) => {
         const state = persistedState as Partial<QuranState>;
         const now = new Date();

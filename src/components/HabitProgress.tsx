@@ -1,11 +1,17 @@
-import { ComponentType, ReactNode } from 'react';
+import { ComponentType, ReactNode, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Flame, ShieldCheck } from 'lucide-react-native';
 import { LucideProps } from 'lucide-react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { Card, ProgressBar } from '@/components/ui';
-import { colors, radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/ThemeProvider';
+import { Palette, radius, spacing, typography } from '@/theme';
+
+function useStyles() {
+  const { colors } = useTheme();
+  return useMemo(() => createStyles(colors), [colors]);
+}
 
 type Icon = ComponentType<LucideProps>;
 
@@ -24,6 +30,8 @@ export function StreakBanner({
   longest: number;
   freezeCount: number;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const recordGap = Math.max(0, longest - current);
   const message =
     current === 0
@@ -56,6 +64,8 @@ export function StreakBanner({
 }
 
 export function MetricStrip({ items }: { items: MetricItem[] }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <Card style={styles.metricStrip}>
       {items.map((item, index) => {
@@ -97,6 +107,8 @@ export function RewardProgress({
   value: number;
   trailing?: ReactNode;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <Card style={styles.rewardCard}>
       <View style={styles.rewardTop}>
@@ -122,6 +134,8 @@ export function ProgressRing({
   value: number;
   label: string;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const size = 120;
   const strokeWidth = 10;
   const radiusValue = (size - strokeWidth) / 2;
@@ -160,7 +174,8 @@ export function ProgressRing({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   streakBanner: {
     alignItems: 'center',
     backgroundColor: 'rgba(212,163,115,0.08)',
@@ -297,4 +312,5 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 1,
   },
-});
+  });
+}

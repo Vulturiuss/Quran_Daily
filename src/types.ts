@@ -45,6 +45,8 @@ export interface UserProfile {
   preferredReciter: string;
   showReviewTransliteration: boolean;
   showReviewTranslation: boolean;
+  theme: 'teal' | 'pink' | 'blue';
+  learningQueue: number[];
 }
 
 export interface UserStats {

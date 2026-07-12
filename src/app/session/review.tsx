@@ -60,18 +60,29 @@ export default function ReviewSessionScreen() {
   }
 
   function confirmExit() {
-    Alert.alert('Quitter la session ?', 'La progression de cette session ne sera pas enregistrée.', [
-      { text: 'Continuer', style: 'cancel' },
-      {
-        text: 'Quitter',
-        style: 'destructive',
-        onPress: () => {
-          void stop();
-          clearActiveSession();
-          router.replace('/(tabs)');
+    const hasProgress = current > 0;
+    Alert.alert(
+      'Quitter la session ?',
+      hasProgress
+        ? 'Tes révisions déjà notées seront enregistrées et comptabilisées.'
+        : 'Aucune révision n’a encore été notée dans cette session.',
+      [
+        { text: 'Continuer', style: 'cancel' },
+        {
+          text: 'Quitter',
+          style: 'destructive',
+          onPress: () => {
+            void stop();
+            if (hasProgress) {
+              router.replace('/session/complete');
+            } else {
+              clearActiveSession();
+              router.replace('/(tabs)');
+            }
+          },
         },
-      },
-    ]);
+      ],
+    );
   }
 
   if (!session || !surah || current >= total) return null;

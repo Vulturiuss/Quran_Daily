@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useMemo } from 'react';
 import {
   Image,
   ScrollView,
@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { colors, layout, spacing } from '@/theme';
+import { useTheme } from '@/providers/ThemeProvider';
+import { Palette, layout, spacing } from '@/theme';
 import { ornamentalPatternSource } from '@/components/OrnamentalCard';
 
 interface AppScreenProps {
@@ -28,6 +29,9 @@ export function AppScreen({
   contentStyle,
   refreshControl,
 }: AppScreenProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   if (!scroll) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -70,7 +74,8 @@ export function AppScreen({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: colors.backgroundDeep,
@@ -101,4 +106,5 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
     width: '100%',
   },
-});
+  });
+}

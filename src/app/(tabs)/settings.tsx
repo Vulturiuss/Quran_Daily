@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
@@ -11,6 +11,7 @@ import {
   RotateCcw,
   Scale,
   ShieldCheck,
+  Sparkles,
   Target,
   UserRound,
   Users,
@@ -18,15 +19,16 @@ import {
 
 import { AppScreen } from '@/components/AppScreen';
 import { VerseAudioButton } from '@/components/VerseAudioButton';
-import { Card, Pill, PrimaryButton, ScreenTitle, SectionHeader } from '@/components/ui';
+import { Card, Pill, PrimaryButton, ScreenTitle, SectionHeader, TimeStepper } from '@/components/ui';
 import { getVerse } from '@/data/verses';
 import { useCloud } from '@/providers/CloudProvider';
 import { useFamily } from '@/providers/FamilyProvider';
 import { useSubscription } from '@/providers/SubscriptionProvider';
+import { useTheme } from '@/providers/ThemeProvider';
 import { cancelSmartReminders, enableSmartReminders } from '@/services/notifications';
 import { reciters } from '@/services/quranApi';
 import { useQuranStore } from '@/store/useQuranStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, themeOptions, typography } from '@/theme';
 
 const goalOptions = [
   { minutes: 3 as const, reviews: 1, verses: 1 },
@@ -34,7 +36,6 @@ const goalOptions = [
   { minutes: 10 as const, reviews: 3, verses: 4 },
   { minutes: 15 as const, reviews: 5, verses: 5 },
 ];
-const reminderTimes = ['07:00', '12:30', '20:00', '22:00'];
 const reciterOptions = Object.entries(reciters).map(([id, reciter]) => ({
   id,
   label: reciter.name,
@@ -43,6 +44,8 @@ const reciterOptions = Object.entries(reciters).map(([id, reciter]) => ({
 const previewVerse = getVerse(1, 1);
 
 export default function SettingsScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const profile = useQuranStore((state) => state.profile);
   const currentStreak = useQuranStore((state) => state.stats.currentStreak);
   const freezeCount = useQuranStore((state) => state.stats.freezeCount);
@@ -215,16 +218,7 @@ export default function SettingsScreen() {
               <Clock3 color={colors.textMuted} size={16} />
               <Text style={styles.timeLabelText}>Heure du rappel</Text>
             </View>
-            <View style={styles.pills}>
-              {reminderTimes.map((time) => (
-                <Pill
-                  key={time}
-                  label={time}
-                  onPress={() => changeTime(time)}
-                  selected={profile.notificationTime === time}
-                />
-              ))}
-            </View>
+            <TimeStepper onChange={(time) => void changeTime(time)} value={profile.notificationTime} />
           </View>
         ) : null}
         <View style={styles.settingDivider} />
@@ -314,6 +308,29 @@ export default function SettingsScreen() {
             variant="ghost"
           />
         ) : null}
+      </Card>
+
+      <SectionHeader title="Thème" />
+      <Card>
+        <View style={styles.settingHeader}>
+          <View style={styles.settingIcon}>
+            <Sparkles color={colors.gold} size={21} />
+          </View>
+          <View style={styles.settingCopy}>
+            <Text style={styles.settingTitle}>Couleur de l'application</Text>
+            <Text style={styles.settingText}>Change l'ambiance visuelle à tout moment.</Text>
+          </View>
+        </View>
+        <View style={styles.pills}>
+          {themeOptions.map((option) => (
+            <Pill
+              key={option.id}
+              label={option.label}
+              selected={profile.theme === option.id}
+              onPress={() => updateProfile({ theme: option.id })}
+            />
+          ))}
+        </View>
       </Card>
 
       <SectionHeader title="Famille" />
@@ -418,7 +435,8 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   profileCard: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -606,4 +624,5 @@ const styles = StyleSheet.create({
     height: 1,
     marginHorizontal: spacing.md,
   },
-});
+  });
+}

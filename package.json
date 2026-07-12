@@ -10,6 +10,7 @@
     "web": "expo start --web",
     "dev-client": "expo start --dev-client",
     "beta:android": "npx eas-cli@latest build --platform android --profile development",
+    "friends:android-apk": "npx eas-cli@latest build --platform android --profile preview",
     "beta:ios": "npx eas-cli@latest build --platform ios --profile development",
     "beta:ios-simulator": "npx eas-cli@latest build --platform ios --profile ios-simulator",
     "e2e:maestro": "maestro test e2e/maestro",

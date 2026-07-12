@@ -1,17 +1,18 @@
 import { useMemo, useState } from 'react';
 import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
-import { Search } from 'lucide-react-native';
+import { ArrowLeft, Search } from 'lucide-react-native';
 
 import { AppScreen } from '@/components/AppScreen';
 import { SurahRow } from '@/components/SurahRow';
-import { Pill, ScreenTitle } from '@/components/ui';
+import { IconButton, Pill, ScreenTitle } from '@/components/ui';
 import { surahs } from '@/data/surahs';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { isFreeSurah } from '@/services/subscription';
 import { useQuranStore } from '@/store/useQuranStore';
 import { colors, radius, spacing, typography } from '@/theme';
 import { SurahStatus } from '@/types';
+import { goBackOrReplace } from '@/utils/navigation';
 
 type Filter = 'all' | SurahStatus;
 
@@ -45,6 +46,13 @@ export default function LibraryScreen() {
   return (
     <AppScreen scroll={false} contentStyle={styles.screen}>
       <ScreenTitle
+        action={
+          <IconButton
+            icon={ArrowLeft}
+            label="Retour"
+            onPress={() => goBackOrReplace('/(tabs)')}
+          />
+        }
         title="Bibliothèque"
         subtitle={`${knownCount} connues · ${learningCount} en apprentissage`}
       />

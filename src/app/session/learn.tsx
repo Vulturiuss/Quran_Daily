@@ -56,18 +56,29 @@ export default function LearnSessionScreen() {
   }
 
   function confirmExit() {
-    Alert.alert('Quitter la session ?', 'La progression non validée sera perdue.', [
-      { text: 'Continuer', style: 'cancel' },
-      {
-        text: 'Quitter',
-        style: 'destructive',
-        onPress: () => {
-          void stop();
-          clearActiveSession();
-          router.replace('/(tabs)');
+    const hasProgress = (session?.reviewIndex ?? 0) > 0 || (session?.versesLearned ?? 0) > 0;
+    Alert.alert(
+      'Quitter la session ?',
+      hasProgress
+        ? 'Ta progression déjà validée sera enregistrée et comptabilisée. Le verset en cours sera perdu.'
+        : 'La progression non validée sera perdue.',
+      [
+        { text: 'Continuer', style: 'cancel' },
+        {
+          text: 'Quitter',
+          style: 'destructive',
+          onPress: () => {
+            void stop();
+            if (hasProgress) {
+              router.replace('/session/complete');
+            } else {
+              clearActiveSession();
+              router.replace('/(tabs)');
+            }
+          },
         },
-      },
-    ]);
+      ],
+    );
   }
 
   if (!session) return null;

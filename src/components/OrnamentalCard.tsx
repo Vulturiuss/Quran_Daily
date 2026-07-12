@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useMemo } from 'react';
 import {
   Image,
   StyleProp,
@@ -9,7 +9,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { AndalusianArch } from '@/components/IslamicOrnaments';
-import { colors, radius, spacing } from '@/theme';
+import { useTheme } from '@/providers/ThemeProvider';
+import { Palette, radius, spacing } from '@/theme';
 
 const patternSource = require('../../assets/andalusian-pattern-v1.jpg');
 
@@ -24,6 +25,8 @@ export function OrnamentalCard({
   contentStyle?: StyleProp<ViewStyle>;
   compact?: boolean;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={[styles.shell, style]}>
       <Image
@@ -54,7 +57,8 @@ export function OrnamentalCard({
 
 export const ornamentalPatternSource = patternSource;
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   shell: {
     backgroundColor: colors.surface,
     borderColor: 'rgba(232,204,107,0.46)',
@@ -90,4 +94,5 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     paddingTop: spacing.lg,
   },
-});
+  });
+}

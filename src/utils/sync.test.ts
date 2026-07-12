@@ -20,6 +20,8 @@ function snapshot(updatedAt: string): CloudSnapshot {
       preferredReciter: 'mishary',
       showReviewTransliteration: false,
       showReviewTranslation: false,
+      theme: 'teal',
+      learningQueue: [],
     },
     progress: {},
     stats: createDefaultStats(new Date('2026-06-14T12:00:00')),

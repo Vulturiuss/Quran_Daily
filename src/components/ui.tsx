@@ -1,4 +1,4 @@
-import { ComponentType, ReactNode, useEffect, useRef } from 'react';
+import { ComponentType, ReactNode, useEffect, useMemo, useRef } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -12,11 +12,18 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { LucideProps } from 'lucide-react-native';
 
-import { colors, motion, radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/ThemeProvider';
+import { Palette, motion, radius, spacing, typography } from '@/theme';
 
 type Icon = ComponentType<LucideProps>;
 
+function useStyles() {
+  const { colors } = useTheme();
+  return useMemo(() => createStyles(colors), [colors]);
+}
+
 export function Eyebrow({ children }: { children: ReactNode }) {
+  const styles = useStyles();
   return <Text style={styles.eyebrow}>{children}</Text>;
 }
 
@@ -29,6 +36,7 @@ export function ScreenTitle({
   subtitle?: string;
   action?: ReactNode;
 }) {
+  const styles = useStyles();
   return (
     <View style={styles.titleRow}>
       <View style={styles.titleCopy}>
@@ -49,6 +57,8 @@ export function Card({
   style?: StyleProp<ViewStyle>;
   gradient?: boolean;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   if (gradient) {
     return (
       <LinearGradient
@@ -83,6 +93,8 @@ export function PrimaryButton({
   compact?: boolean;
   style?: StyleProp<ViewStyle>;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <Pressable
       accessibilityLabel={label}
@@ -126,13 +138,15 @@ export function PrimaryButton({
 
 export function ProgressBar({
   value,
-  color = colors.gold,
+  color,
   height = 8,
 }: {
   value: number;
   color?: string;
   height?: number;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const progress = useRef(new Animated.Value(0)).current;
   const normalizedValue = Math.max(0, Math.min(1, value));
 
@@ -160,7 +174,7 @@ export function ProgressBar({
         style={[
           styles.progressFill,
           {
-            backgroundColor: color,
+            backgroundColor: color ?? colors.gold,
             height,
             width: progress.interpolate({
               inputRange: [0, 1],
@@ -177,20 +191,22 @@ export function StatCard({
   value,
   label,
   icon: IconComponent,
-  accent = colors.gold,
+  accent,
 }: {
   value: string | number;
   label: string;
   icon: Icon;
   accent?: string;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <View
       accessibilityLabel={`${label} : ${value}`}
       accessible
       style={styles.statCard}
     >
-      <IconComponent size={18} color={accent} />
+      <IconComponent size={18} color={accent ?? colors.gold} />
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
@@ -206,6 +222,7 @@ export function Pill({
   selected?: boolean;
   onPress?: () => void;
 }) {
+  const styles = useStyles();
   return (
     <Pressable
       accessibilityLabel={label}
@@ -231,6 +248,7 @@ export function SectionHeader({
   title: string;
   action?: ReactNode;
 }) {
+  const styles = useStyles();
   return (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -248,6 +266,8 @@ export function IconButton({
   onPress: () => void;
   label: string;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <Pressable
       accessibilityLabel={label}
@@ -260,185 +280,287 @@ export function IconButton({
   );
 }
 
-const styles = StyleSheet.create({
-  eyebrow: {
-    color: colors.gold,
-    fontFamily: typography.extraBold,
-    fontSize: 12,
-    letterSpacing: 1.8,
-    textTransform: 'uppercase',
-  },
-  titleRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.lg,
-    marginTop: spacing.sm,
-  },
-  titleCopy: {
-    flex: 1,
-    paddingRight: spacing.md,
-  },
-  title: {
-    color: colors.text,
-    fontFamily: typography.extraBold,
-    fontSize: 30,
-    letterSpacing: -0.8,
-  },
-  subtitle: {
-    color: colors.textMuted,
-    fontFamily: typography.regular,
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 3,
-  },
-  card: {
-    backgroundColor: 'rgba(25,56,42,0.94)',
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    elevation: 2,
-    overflow: 'hidden',
-    padding: spacing.lg,
-    shadowColor: '#000000',
-    shadowOffset: { height: 5, width: 0 },
-    shadowOpacity: 0.14,
-    shadowRadius: 10,
-  },
-  button: {
-    alignItems: 'center',
-    borderRadius: radius.md,
-    flexDirection: 'row',
-    gap: spacing.sm,
-    justifyContent: 'center',
-    minHeight: 56,
-    paddingHorizontal: spacing.lg,
-  },
-  button_gold: {
-    backgroundColor: colors.goldSoft,
-    borderColor: colors.goldPale,
-    borderWidth: 1,
-    elevation: 5,
-    shadowColor: colors.gold,
-    shadowOffset: { height: 5, width: 0 },
-    shadowOpacity: 0.24,
-    shadowRadius: 10,
-  },
-  button_surface: {
-    backgroundColor: colors.surfaceElevated,
-    borderColor: colors.border,
-    borderWidth: 1,
-  },
-  button_ghost: {
-    backgroundColor: 'transparent',
-    borderColor: 'rgba(245,245,240,0.18)',
-    borderWidth: 1,
-  },
-  button_danger: {
-    backgroundColor: 'rgba(229,115,115,0.14)',
-    borderColor: 'rgba(229,115,115,0.35)',
-    borderWidth: 1,
-  },
-  buttonCompact: {
-    minHeight: 42,
-    paddingHorizontal: spacing.md,
-  },
-  buttonDisabled: {
-    opacity: 0.45,
-  },
-  buttonPressed: {
-    opacity: 0.76,
-    transform: [{ scale: 0.985 }],
-  },
-  buttonText: {
-    color: colors.text,
-    fontFamily: typography.bold,
-    fontSize: 16,
-  },
-  buttonTextGold: {
-    color: colors.backgroundDeep,
-  },
-  buttonTextCompact: {
-    fontSize: 14,
-  },
-  progressTrack: {
-    backgroundColor: 'rgba(255,255,255,0.09)',
-    borderRadius: radius.pill,
-    overflow: 'hidden',
-    width: '100%',
-  },
-  progressFill: {
-    borderRadius: radius.pill,
-  },
-  statCard: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(25,56,42,0.94)',
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flex: 1,
-    minHeight: 112,
-    padding: spacing.md,
-  },
-  statValue: {
-    color: colors.text,
-    fontFamily: typography.extraBold,
-    fontSize: 24,
-    marginTop: spacing.xs,
-  },
-  statLabel: {
-    color: colors.textMuted,
-    fontFamily: typography.medium,
-    fontSize: 12,
-    marginTop: 2,
-    textAlign: 'center',
-  },
-  pill: {
-    backgroundColor: colors.surface,
-    borderColor: 'rgba(255,255,255,0.12)',
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    paddingHorizontal: 15,
-    paddingVertical: 9,
-  },
-  pillSelected: {
-    backgroundColor: 'rgba(212,163,115,0.17)',
-    borderColor: colors.gold,
-  },
-  pillText: {
-    color: colors.textMuted,
-    fontFamily: typography.bold,
-    fontSize: 13,
-  },
-  pillTextSelected: {
-    color: colors.goldSoft,
-  },
-  sectionHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-    marginTop: spacing.xl,
-  },
-  sectionTitle: {
-    color: colors.text,
-    fontFamily: typography.extraBold,
-    fontSize: 18,
-    letterSpacing: -0.3,
-  },
-  iconButton: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(25,56,42,0.95)',
-    borderColor: colors.borderStrong,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    height: 44,
-    justifyContent: 'center',
-    width: 44,
-    elevation: 3,
-    shadowColor: '#000000',
-    shadowOffset: { height: 4, width: 0 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-  },
-});
+export function TimeStepper({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (time: string) => void;
+}) {
+  const styles = useStyles();
+  const [hourStr, minuteStr] = value.split(':');
+  const hour = Number(hourStr) || 0;
+  const minute = Number(minuteStr) || 0;
+
+  function commit(nextHour: number, nextMinute: number) {
+    const h = ((nextHour % 24) + 24) % 24;
+    const m = ((nextMinute % 60) + 60) % 60;
+    onChange(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  }
+
+  return (
+    <View style={styles.timeStepper}>
+      <View style={styles.timeStepperColumn}>
+        <Pressable
+          accessibilityLabel="Heure suivante"
+          accessibilityRole="button"
+          onPress={() => commit(hour + 1, minute)}
+          style={({ pressed }) => [styles.timeStepperButton, pressed && styles.buttonPressed]}
+        >
+          <Text style={styles.timeStepperButtonText}>+</Text>
+        </Pressable>
+        <Text style={styles.timeStepperValue}>{String(hour).padStart(2, '0')}</Text>
+        <Pressable
+          accessibilityLabel="Heure précédente"
+          accessibilityRole="button"
+          onPress={() => commit(hour - 1, minute)}
+          style={({ pressed }) => [styles.timeStepperButton, pressed && styles.buttonPressed]}
+        >
+          <Text style={styles.timeStepperButtonText}>-</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.timeStepperColon}>:</Text>
+      <View style={styles.timeStepperColumn}>
+        <Pressable
+          accessibilityLabel="Minute suivante"
+          accessibilityRole="button"
+          onPress={() => commit(hour, minute + 5)}
+          style={({ pressed }) => [styles.timeStepperButton, pressed && styles.buttonPressed]}
+        >
+          <Text style={styles.timeStepperButtonText}>+</Text>
+        </Pressable>
+        <Text style={styles.timeStepperValue}>{String(minute).padStart(2, '0')}</Text>
+        <Pressable
+          accessibilityLabel="Minute précédente"
+          accessibilityRole="button"
+          onPress={() => commit(hour, minute - 5)}
+          style={({ pressed }) => [styles.timeStepperButton, pressed && styles.buttonPressed]}
+        >
+          <Text style={styles.timeStepperButtonText}>-</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
+    eyebrow: {
+      color: colors.gold,
+      fontFamily: typography.extraBold,
+      fontSize: 12,
+      letterSpacing: 1.8,
+      textTransform: 'uppercase',
+    },
+    titleRow: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: spacing.lg,
+      marginTop: spacing.sm,
+    },
+    titleCopy: {
+      flex: 1,
+      paddingRight: spacing.md,
+    },
+    title: {
+      color: colors.text,
+      fontFamily: typography.extraBold,
+      fontSize: 30,
+      letterSpacing: -0.8,
+    },
+    subtitle: {
+      color: colors.textMuted,
+      fontFamily: typography.regular,
+      fontSize: 14,
+      lineHeight: 21,
+      marginTop: 3,
+    },
+    card: {
+      backgroundColor: 'rgba(25,56,42,0.94)',
+      borderColor: colors.border,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      elevation: 2,
+      overflow: 'hidden',
+      padding: spacing.lg,
+      shadowColor: '#000000',
+      shadowOffset: { height: 5, width: 0 },
+      shadowOpacity: 0.14,
+      shadowRadius: 10,
+    },
+    button: {
+      alignItems: 'center',
+      borderRadius: radius.md,
+      flexDirection: 'row',
+      gap: spacing.sm,
+      justifyContent: 'center',
+      minHeight: 56,
+      paddingHorizontal: spacing.lg,
+    },
+    button_gold: {
+      backgroundColor: colors.goldSoft,
+      borderColor: colors.goldPale,
+      borderWidth: 1,
+      elevation: 5,
+      shadowColor: colors.gold,
+      shadowOffset: { height: 5, width: 0 },
+      shadowOpacity: 0.24,
+      shadowRadius: 10,
+    },
+    button_surface: {
+      backgroundColor: colors.surfaceElevated,
+      borderColor: colors.border,
+      borderWidth: 1,
+    },
+    button_ghost: {
+      backgroundColor: 'transparent',
+      borderColor: 'rgba(245,245,240,0.18)',
+      borderWidth: 1,
+    },
+    button_danger: {
+      backgroundColor: 'rgba(229,115,115,0.14)',
+      borderColor: 'rgba(229,115,115,0.35)',
+      borderWidth: 1,
+    },
+    buttonCompact: {
+      minHeight: 42,
+      paddingHorizontal: spacing.md,
+    },
+    buttonDisabled: {
+      opacity: 0.45,
+    },
+    buttonPressed: {
+      opacity: 0.76,
+      transform: [{ scale: 0.985 }],
+    },
+    buttonText: {
+      color: colors.text,
+      fontFamily: typography.bold,
+      fontSize: 16,
+    },
+    buttonTextGold: {
+      color: colors.backgroundDeep,
+    },
+    buttonTextCompact: {
+      fontSize: 14,
+    },
+    progressTrack: {
+      backgroundColor: 'rgba(255,255,255,0.09)',
+      borderRadius: radius.pill,
+      overflow: 'hidden',
+      width: '100%',
+    },
+    progressFill: {
+      borderRadius: radius.pill,
+    },
+    statCard: {
+      alignItems: 'center',
+      backgroundColor: 'rgba(25,56,42,0.94)',
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      flex: 1,
+      minHeight: 112,
+      padding: spacing.md,
+    },
+    statValue: {
+      color: colors.text,
+      fontFamily: typography.extraBold,
+      fontSize: 24,
+      marginTop: spacing.xs,
+    },
+    statLabel: {
+      color: colors.textMuted,
+      fontFamily: typography.medium,
+      fontSize: 12,
+      marginTop: 2,
+      textAlign: 'center',
+    },
+    pill: {
+      backgroundColor: colors.surface,
+      borderColor: 'rgba(255,255,255,0.12)',
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      paddingHorizontal: 15,
+      paddingVertical: 9,
+    },
+    pillSelected: {
+      backgroundColor: 'rgba(212,163,115,0.17)',
+      borderColor: colors.gold,
+    },
+    pillText: {
+      color: colors.textMuted,
+      fontFamily: typography.bold,
+      fontSize: 13,
+    },
+    pillTextSelected: {
+      color: colors.goldSoft,
+    },
+    sectionHeader: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: spacing.md,
+      marginTop: spacing.xl,
+    },
+    sectionTitle: {
+      color: colors.text,
+      fontFamily: typography.extraBold,
+      fontSize: 18,
+      letterSpacing: -0.3,
+    },
+    iconButton: {
+      alignItems: 'center',
+      backgroundColor: 'rgba(25,56,42,0.95)',
+      borderColor: colors.borderStrong,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      height: 44,
+      justifyContent: 'center',
+      width: 44,
+      elevation: 3,
+      shadowColor: '#000000',
+      shadowOffset: { height: 4, width: 0 },
+      shadowOpacity: 0.2,
+      shadowRadius: 8,
+    },
+    timeStepper: {
+      alignItems: 'center',
+      alignSelf: 'center',
+      flexDirection: 'row',
+      gap: spacing.sm,
+    },
+    timeStepperColumn: {
+      alignItems: 'center',
+      gap: spacing.xs,
+    },
+    timeStepperButton: {
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      height: 36,
+      justifyContent: 'center',
+      width: 52,
+    },
+    timeStepperButtonText: {
+      color: colors.gold,
+      fontFamily: typography.extraBold,
+      fontSize: 18,
+    },
+    timeStepperValue: {
+      color: colors.text,
+      fontFamily: typography.extraBold,
+      fontSize: 26,
+      minWidth: 52,
+      textAlign: 'center',
+    },
+    timeStepperColon: {
+      color: colors.textMuted,
+      fontFamily: typography.extraBold,
+      fontSize: 22,
+    },
+  });
+}

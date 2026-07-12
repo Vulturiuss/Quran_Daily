@@ -6,7 +6,10 @@ import {
   Check,
   Crown,
   GraduationCap,
+  ListPlus,
+  ListX,
   MapPin,
+  RotateCcw,
   Wifi,
 } from 'lucide-react-native';
 
@@ -32,8 +35,13 @@ export default function SurahDetailScreen() {
   const verses = getVerses(number);
   const progress = useQuranStore((state) => state.progress[number]);
   const preferredReciter = useQuranStore((state) => state.profile.preferredReciter);
+  const learningQueue = useQuranStore((state) => state.profile.learningQueue);
   const setLearningSurah = useQuranStore((state) => state.setLearningSurah);
   const markSurahKnown = useQuranStore((state) => state.markSurahKnown);
+  const markSurahForgotten = useQuranStore((state) => state.markSurahForgotten);
+  const addToLearningQueue = useQuranStore((state) => state.addToLearningQueue);
+  const removeFromLearningQueue = useQuranStore((state) => state.removeFromLearningQueue);
+  const inQueue = learningQueue.includes(number);
   const { error: audioError } = useQuranAudio();
   const { configured, isPremium } = useSubscription();
   const premiumLocked =
@@ -89,7 +97,11 @@ export default function SurahDetailScreen() {
 
   function chooseForLearning() {
     setLearningSurah(number);
-    router.replace('/learn');
+    if (router.canDismiss()) {
+      router.dismissTo('/learn');
+    } else {
+      router.replace('/learn');
+    }
   }
 
   const header = (
@@ -153,6 +165,26 @@ export default function SurahDetailScreen() {
             label="Je la connais déjà"
             onPress={() => markSurahKnown(number)}
             variant="surface"
+          />
+        ) : null}
+        {progress?.status !== 'known' && progress?.status !== 'learning' ? (
+          <PrimaryButton
+            compact
+            icon={inQueue ? ListX : ListPlus}
+            label={inQueue ? 'Retirer de la file' : 'Ajouter à la file'}
+            onPress={() =>
+              inQueue ? removeFromLearningQueue(number) : addToLearningQueue(number)
+            }
+            variant="ghost"
+          />
+        ) : null}
+        {progress?.status === 'known' ? (
+          <PrimaryButton
+            compact
+            icon={RotateCcw}
+            label="Je l'ai oubliée"
+            onPress={() => markSurahForgotten(number)}
+            variant="ghost"
           />
         ) : null}
       </View>

@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
@@ -32,18 +33,21 @@ import {
 } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
 import { useSubscription } from '@/providers/SubscriptionProvider';
+import { useTheme } from '@/providers/ThemeProvider';
 import { FREE_SURAH_NUMBERS, isFreeSurah } from '@/services/subscription';
 import {
   selectKnownCount,
   selectLearningProgress,
   useQuranStore,
 } from '@/store/useQuranStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography } from '@/theme';
 import { addDays, dateKey } from '@/utils/date';
 import { getLevelProgress } from '@/utils/gamification';
 import { buildSessionPreview } from '@/utils/sessionPlan';
 
 export default function HomeScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const profile = useQuranStore((state) => state.profile);
   const stats = useQuranStore((state) => state.stats);
   const history = useQuranStore((state) => state.history);
@@ -309,7 +313,8 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   header: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -526,4 +531,5 @@ const styles = StyleSheet.create({
     fontFamily: typography.extraBold,
     fontSize: 15,
   },
-});
+  });
+}

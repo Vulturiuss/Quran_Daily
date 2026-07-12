@@ -24,6 +24,7 @@ import { FamilyProvider } from '@/providers/FamilyProvider';
 import { GamificationProvider } from '@/providers/GamificationProvider';
 import { ReminderProvider } from '@/providers/ReminderProvider';
 import { SubscriptionProvider } from '@/providers/SubscriptionProvider';
+import { ThemeProvider } from '@/providers/ThemeProvider';
 import { colors } from '@/theme';
 
 SplashScreen.setOptions({ duration: 500, fade: true });
@@ -65,7 +66,8 @@ export default function RootLayout() {
   }
 
   return (
-    <SafeAreaProvider>
+    <ThemeProvider>
+      <SafeAreaProvider>
       <CloudProvider>
         <FamilyProvider>
           <ReminderProvider>
@@ -112,6 +114,7 @@ export default function RootLayout() {
           </ReminderProvider>
         </FamilyProvider>
       </CloudProvider>
-    </SafeAreaProvider>
+      </SafeAreaProvider>
+    </ThemeProvider>
   );
 }
