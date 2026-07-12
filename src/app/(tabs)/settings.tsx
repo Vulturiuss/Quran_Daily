@@ -23,6 +23,7 @@ import { Card, Pill, PrimaryButton, ScreenTitle, SectionHeader, TimeStepper } fr
 import { getVerse } from '@/data/verses';
 import { useCloud } from '@/providers/CloudProvider';
 import { useFamily } from '@/providers/FamilyProvider';
+import { useAccess } from '@/hooks/useAccess';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { useTheme } from '@/providers/ThemeProvider';
 import { cancelSmartReminders, enableSmartReminders } from '@/services/notifications';
@@ -32,7 +33,7 @@ import { Palette, radius, spacing, themeOptions, typography, withAlpha } from '@
 import {
   FREE_RECITER_ID,
   FREE_THEME,
-  hasFullAccess as computeFullAccess,
+  PREMIUM_MAX_LEARNING_SURAHS,
 } from '@/utils/access';
 
 const goalOptions = [
@@ -59,12 +60,11 @@ export default function SettingsScreen() {
   const resetApp = useQuranStore((state) => state.resetApp);
   const { configured, session, status, resetLocalData } = useCloud();
   const { context: familyContext } = useFamily();
-  const {
-    configured: subscriptionConfigured,
-    isPremium,
-    isFamily,
-  } = useSubscription();
-  const hasFullAccess = computeFullAccess(subscriptionConfigured, isPremium);
+  const { isPremium, isFamily } = useSubscription();
+  const access = useAccess();
+  // Render optimistically while the tier resolves, so a subscriber does not see
+  // the reciter list and the theme picker flash their locked state.
+  const hasFullAccess = access.hasFullAccess || !access.resolved;
   const [busy, setBusy] = useState(false);
   const [showAllReciters, setShowAllReciters] = useState(false);
   const visibleReciters = showAllReciters
@@ -231,7 +231,7 @@ export default function SettingsScreen() {
             <Text style={styles.settingTitle}>Protection automatique du streak</Text>
             <Text style={styles.settingText}>
               {freezeCount} disponible{freezeCount > 1 ? 's' : ''} · recharge mensuelle à{' '}
-              {isPremium ? 3 : 1}.
+              {access.freezeAllowance}.
             </Text>
           </View>
         </View>
@@ -400,7 +400,7 @@ export default function SettingsScreen() {
             <Text style={styles.settingText}>
               {isPremium
                 ? 'Ton accès complet est actif sur ce compte.'
-                : '114 sourates, récitateurs et statistiques avancées.'}
+                : `${PREMIUM_MAX_LEARNING_SURAHS} sourates en parallèle, ta progression détaillée, tous les récitateurs et tous les thèmes.`}
             </Text>
           </View>
         </View>
@@ -415,8 +415,9 @@ export default function SettingsScreen() {
       <View style={styles.infoRow}>
         <ShieldCheck color={colors.success} size={19} />
         <Text style={styles.infoText}>
-          Les 114 sourates sont disponibles hors ligne. Les audios sont diffusés depuis Quran.com
-          et téléchargés temporairement sur mobile avant lecture.
+          Les 114 sourates sont gratuites, sans limite d’apprentissage ni de révision, et
+          disponibles hors ligne. Les audios sont diffusés depuis Quran.com et téléchargés
+          temporairement sur mobile avant lecture.
         </Text>
       </View>
 

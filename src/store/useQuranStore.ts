@@ -127,6 +127,13 @@ export interface QuranState {
    * one steps aside.
    */
   setLearningSurah: (surahNumber: number, maxLearningSurahs?: number) => void;
+  /**
+   * Brings the number of surahs being learnt back down to the tier's limit,
+   * keeping the most recently active ones. Called when the subscription resolves:
+   * without it a lapsed subscriber kept their three parallel surahs forever — and
+   * regained a slot every time one was finished, since the queue promotes another.
+   */
+  enforceLearningLimit: (maxLearningSurahs: number) => void;
   markSurahKnown: (surahNumber: number) => void;
   markSurahForgotten: (surahNumber: number) => void;
   addToLearningQueue: (surahNumber: number) => void;
@@ -231,6 +238,29 @@ export const useQuranStore = create<QuranState>()(
           profile: { ...state.profile, ...input },
           syncMeta: changedNow(state.syncMeta),
         })),
+
+      enforceLearningLimit: (maxLearningSurahs) =>
+        set((state) => {
+          const limit = Math.max(1, maxLearningSurahs);
+          const active = Object.values(state.progress)
+            .filter((item) => item.status === 'learning')
+            .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+          const excess = active.slice(limit);
+          if (excess.length === 0) return state;
+
+          const updatedAt = new Date().toISOString();
+          const next = { ...state.progress };
+          excess.forEach((item) => {
+            // Demoted, not erased: versesLearned is kept, so the surah resumes
+            // where it left off if the user subscribes again or picks it back up.
+            next[item.surahNumber] = { ...item, status: 'locked', updatedAt };
+          });
+
+          return {
+            progress: next,
+            syncMeta: changedNow(state.syncMeta),
+          };
+        }),
 
       setLearningSurah: (surahNumber, maxLearningSurahs = 1) =>
         set((state) => {
@@ -364,7 +394,19 @@ export const useQuranStore = create<QuranState>()(
         }
 
         const state = get();
-        if (state.activeSession?.date === dateKey()) return;
+        const today = state.activeSession;
+        if (today?.date === dateKey()) {
+          // A session already opened today is normally resumed as-is. The one
+          // exception: it has not been touched yet and the user is explicitly
+          // asking for a different surah among the ones they learn in parallel.
+          // Returning here regardless meant the app kept working on the previous
+          // surah while showing the one they had just picked.
+          const untouched = today.reviewIndex === 0 && today.versesLearned === 0;
+          const wantsAnotherSurah =
+            access?.learningSurah !== undefined &&
+            access.learningSurah !== today.learningSurah;
+          if (!untouched || !wantsAnotherSurah) return;
+        }
 
         // Every surah is reviewable on every tier: the only bound is the user's
         // own daily goal.

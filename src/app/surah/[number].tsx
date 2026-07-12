@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   ArrowLeft,
@@ -20,17 +20,16 @@ import { VerseCard } from '@/components/VerseCard';
 import { IconButton, PrimaryButton, ProgressBar, SectionHeader } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
 import { getVerses } from '@/data/verses';
+import { useAccess } from '@/hooks/useAccess';
 import { useQuranAudio } from '@/providers/AudioProvider';
-import { useSubscription } from '@/providers/SubscriptionProvider';
 import { useTheme } from '@/providers/ThemeProvider';
 import { reciters, ReciterId } from '@/services/quranApi';
 import { useQuranStore } from '@/store/useQuranStore';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import {
-  capabilities,
   effectiveReciter,
   FREE_RECITER_ID,
-  hasFullAccess as computeFullAccess,
+  PREMIUM_MAX_LEARNING_SURAHS,
 } from '@/utils/access';
 import { goBackOrReplace } from '@/utils/navigation';
 
@@ -41,7 +40,8 @@ export default function SurahDetailScreen() {
   const number = Number(params.number);
   const surah = getSurah(number);
   const verses = getVerses(number);
-  const progress = useQuranStore((state) => state.progress[number]);
+  const progressMap = useQuranStore((state) => state.progress);
+  const progress = progressMap[number];
   const preferredReciter = useQuranStore((state) => state.profile.preferredReciter);
   const learningQueue = useQuranStore((state) => state.profile.learningQueue);
   const setLearningSurah = useQuranStore((state) => state.setLearningSurah);
@@ -51,7 +51,14 @@ export default function SurahDetailScreen() {
   const removeFromLearningQueue = useQuranStore((state) => state.removeFromLearningQueue);
   const inQueue = learningQueue.includes(number);
   const { error: audioError } = useQuranAudio();
-  const { configured, isPremium } = useSubscription();
+  const access = useAccess();
+  const activeLearning = useMemo(
+    () =>
+      Object.values(progressMap).filter(
+        (item) => item.status === 'learning' && item.surahNumber !== number,
+      ),
+    [number, progressMap],
+  );
 
   if (!surah) {
     return (
@@ -62,22 +69,61 @@ export default function SurahDetailScreen() {
   }
 
   const value = progress ? progress.versesLearned / progress.totalVerses : 0;
-  const access = capabilities(computeFullAccess(configured, isPremium));
+  // Render optimistically while the tier resolves, like VerseAudioButton does,
+  // so the reciter's name does not flicker to the free one and back.
   const reciterId = effectiveReciter(
-    access.allReciters,
+    access.allReciters || !access.resolved,
     preferredReciter,
   ) as ReciterId;
   const reciter = reciters[reciterId] ?? reciters[FREE_RECITER_ID as ReciterId];
+  const wouldReplace = activeLearning.length >= access.maxLearningSurahs;
 
-  function chooseForLearning() {
-    // Premium learns up to three surahs in parallel; without it, picking a new
-    // surah replaces the current one.
+  function promote() {
     setLearningSurah(number, access.maxLearningSurahs);
     if (router.canDismiss()) {
       router.dismissTo('/learn');
     } else {
       router.replace('/learn');
     }
+  }
+
+  function chooseForLearning() {
+    // Never write on unresolved capabilities: `maxLearningSurahs` is 1 for
+    // everyone until the subscription answers, so a subscriber tapping this on a
+    // cold start would have their other two surahs demoted to `locked`.
+    if (!access.resolved) return;
+
+    if (!wouldReplace) {
+      promote();
+      return;
+    }
+
+    const oldest = activeLearning
+      .slice()
+      .sort((a, b) => (a.updatedAt ?? '').localeCompare(b.updatedAt ?? ''))[0];
+    const oldestName = getSurah(oldest?.surahNumber)?.nameTranslit ?? 'ta sourate en cours';
+
+    // Reaching the limit is the strongest intent signal in the whole model, so
+    // it is where the upsell belongs — and replacing an in-progress surah must
+    // never happen silently.
+    Alert.alert(
+      'Remplacer la sourate en cours ?',
+      access.hasFullAccess
+        ? `Tu apprends déjà ${access.maxLearningSurahs} sourates. ${oldestName} laissera sa place, sa progression est conservée.`
+        : `Tu apprends déjà ${oldestName}. Elle laissera sa place, sa progression est conservée.\n\nAvec Premium, tu peux apprendre ${PREMIUM_MAX_LEARNING_SURAHS} sourates en parallèle.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        ...(access.hasFullAccess
+          ? []
+          : [
+              {
+                text: 'Découvrir Premium',
+                onPress: () => router.push('/subscription'),
+              },
+            ]),
+        { text: 'Remplacer', onPress: promote },
+      ],
+    );
   }
 
   const header = (

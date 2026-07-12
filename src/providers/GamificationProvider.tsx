@@ -1,23 +1,39 @@
 import { ReactNode, useCallback, useEffect } from 'react';
 import { AppState, Platform } from 'react-native';
 
-import { useSubscription } from '@/providers/SubscriptionProvider';
+import { useAccess } from '@/hooks/useAccess';
 import { useQuranStore } from '@/store/useQuranStore';
-import { freezeAllowanceFor, hasFullAccess } from '@/utils/access';
 
+/**
+ * Keeps the persisted state in step with the tier. It is the only place allowed
+ * to *lower* what the user has, because it is the only one that waits for the
+ * subscription to actually resolve.
+ */
 export function GamificationProvider({ children }: { children: ReactNode }) {
   const hydrated = useQuranStore((state) => state.hydrated);
   const refreshGamification = useQuranStore((state) => state.refreshGamification);
-  const { configured, isPremium, loading } = useSubscription();
-  const freezeAllowance = freezeAllowanceFor(hasFullAccess(configured, isPremium));
+  const enforceLearningLimit = useQuranStore((state) => state.enforceLearningLimit);
+  const { freezeAllowance, maxLearningSurahs, resolved } = useAccess();
 
   const refresh = useCallback(() => {
     // Until the subscription resolves, `isPremium` is false for everyone. Acting
-    // on that would apply the free allowance to a premium user, and the store
-    // would then see the allowance change again once it resolves.
-    if (!hydrated || loading) return;
+    // on that would apply the free tier to a subscriber — and both writes below
+    // are destructive: the freeze balance gets clamped for the month, and surahs
+    // being learnt get demoted.
+    if (!hydrated || !resolved) return;
     refreshGamification(freezeAllowance);
-  }, [freezeAllowance, hydrated, loading, refreshGamification]);
+    // A lapsed subscriber would otherwise keep their three parallel surahs for
+    // good, and regain a slot each time one was finished (the queue promotes
+    // another). Progress is kept; the surahs simply stop being active.
+    enforceLearningLimit(maxLearningSurahs);
+  }, [
+    enforceLearningLimit,
+    freezeAllowance,
+    hydrated,
+    maxLearningSurahs,
+    refreshGamification,
+    resolved,
+  ]);
 
   useEffect(() => {
     refresh();

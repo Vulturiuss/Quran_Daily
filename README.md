@@ -80,10 +80,14 @@ par les politiques RLS. Ne jamais utiliser la clé `service_role` dans Expo.
 
 ### RevenueCat
 
-L’application reste complètement déverrouillée si aucune clé RevenueCat n’est fournie. Dès que
-RevenueCat est configuré, l’offre gratuite donne accès à Al-Fatiha et aux sourates 95 à 114,
-à trois révisions quotidiennes, à Mishary et au streak. L’entitlement `premium` débloque les
-114 sourates, les récitateurs alternatifs et les statistiques détaillées.
+L’application reste complètement déverrouillée si aucune clé RevenueCat n’est fournie
+(`scripts/check-env.mjs` fait échouer un build de release dans cet état).
+
+**Aucun contenu n’est payant.** Les 114 sourates s’apprennent et se révisent gratuitement,
+sans limite quotidienne. L’entitlement `premium` vend de la capacité et du confort :
+3 sourates apprises en parallèle (au lieu d’une), la progression détaillée, tous les
+récitateurs et tous les thèmes. L’entitlement `family` partage Premium sur 5 comptes.
+Le détail des paliers est défini dans `src/utils/access.ts`.
 
 Configuration recommandée dans RevenueCat:
 

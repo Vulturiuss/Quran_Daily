@@ -20,10 +20,9 @@ import {
   SectionHeader,
 } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
-import { useSubscription } from '@/providers/SubscriptionProvider';
+import { useAccess } from '@/hooks/useAccess';
 import { useTheme } from '@/providers/ThemeProvider';
 import {
-  hasFullAccess as computeFullAccess,
   sessionAccess,
 } from '@/utils/access';
 import { useQuranStore } from '@/store/useQuranStore';
@@ -133,8 +132,7 @@ export default function ReviewScreen() {
   const progress = useQuranStore((state) => state.progress);
   const history = useQuranStore((state) => state.history);
   const startDailySession = useQuranStore((state) => state.startDailySession);
-  const { configured, isPremium } = useSubscription();
-  const hasFullAccess = computeFullAccess(configured, isPremium);
+  const access = useAccess();
   const now = useMemo(() => new Date(), []);
   const reviewLimit = profile.dailyGoalReviews;
   const todayRecord = history.find((record) => record.date === dateKey(now));
@@ -161,8 +159,10 @@ export default function ReviewScreen() {
       router.push('/library');
       return;
     }
+    // Never write on unresolved capabilities: see useAccess.
+    if (!access.resolved) return;
 
-    startDailySession(sessionAccess(hasFullAccess, isBonus));
+    startDailySession(sessionAccess(access.hasFullAccess, isBonus));
     const session = useQuranStore.getState().activeSession;
     if (session?.reviewQueue.length) {
       router.push('/session/review');
@@ -232,6 +232,7 @@ export default function ReviewScreen() {
           <PrimaryButton
             icon={RotateCcw}
             label="Commencer les révisions"
+            loading={!access.resolved}
             onPress={() => startReviewSession(false)}
           />
         ) : (
@@ -242,6 +243,7 @@ export default function ReviewScreen() {
                 ? 'Faire une révision bonus'
                 : 'Choisir mes premières sourates'
             }
+            loading={known.length ? !access.resolved : false}
             onPress={() => startReviewSession(true)}
             variant={known.length ? 'surface' : 'gold'}
           />

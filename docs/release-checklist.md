@@ -41,6 +41,16 @@ Les valeurs `REMPLACER_PAR_*` sont des marqueurs, pas des identifiants :
 - **Android** : déposer le JSON du service account Google Play à
   `./google-play-service-account.json` (à **gitignorer**), ou pointer ailleurs.
 
+## 3bis. Donner Premium à un testeur
+
+Pas besoin de build spécial : créer un compte dans l’app, puis dans Supabase passer
+`profiles.subscription_tier` de `free` à `premium` (ou `family`) pour cet utilisateur.
+L’app le lit en temps réel (abonnement Realtime dans `SubscriptionProvider`).
+
+Cela suppose que le build ait bien les variables Supabase — sans elles, `configured`
+vaut `false` et l’app est déverrouillée pour tout le monde. C’est ce que `check-env`
+empêche sur les profils `production` et `preview`.
+
 ## 3. Appliquer le nouveau schéma Supabase
 
 `supabase/schema.sql` a changé (sécurité Famille). À rejouer dans le SQL Editor.
