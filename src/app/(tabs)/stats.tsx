@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
@@ -27,8 +27,9 @@ import {
 } from '@/components/ui';
 import { badgeById, badges } from '@/data/badges';
 import { useSubscription } from '@/providers/SubscriptionProvider';
+import { useTheme } from '@/providers/ThemeProvider';
 import { selectKnownCount, useQuranStore } from '@/store/useQuranStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { getLevelProgress } from '@/utils/gamification';
 import {
   ActivityRange,
@@ -37,6 +38,8 @@ import {
 } from '@/utils/statistics';
 
 export default function StatsScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [range, setRange] = useState<ActivityRange>(7);
   const stats = useQuranStore((state) => state.stats);
   const history = useQuranStore((state) => state.history);
@@ -259,7 +262,8 @@ export default function StatsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   globalCard: {
     padding: spacing.lg,
   },
@@ -305,7 +309,7 @@ const styles = StyleSheet.create({
   },
   levelBadge: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderRadius: radius.md,
     height: 44,
     justifyContent: 'center',
@@ -394,7 +398,7 @@ const styles = StyleSheet.create({
     height: 18,
   },
   barTrack: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: withAlpha(colors.white, 0.05),
     borderRadius: radius.pill,
     height: 115,
     justifyContent: 'flex-end',
@@ -438,7 +442,7 @@ const styles = StyleSheet.create({
     width: 48,
   },
   badgeIconUnlocked: {
-    backgroundColor: 'rgba(212,163,115,0.15)',
+    backgroundColor: withAlpha(colors.gold, 0.15),
     borderColor: colors.gold,
     borderWidth: 1,
   },
@@ -486,4 +490,5 @@ const styles = StyleSheet.create({
     maxWidth: 320,
     textAlign: 'center',
   },
-});
+  });
+}

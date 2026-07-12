@@ -11,12 +11,14 @@ import {
 import { AppState, Platform } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import { router } from 'expo-router';
 import type { Provider, Session } from '@supabase/supabase-js';
 
 import { isSupabaseConfigured, supabase } from '@/services/supabase';
 import { useQuranStore } from '@/store/useQuranStore';
 import { CloudSnapshot } from '@/types';
+import { isTrustedAuthCallback, parseAuthCallback } from '@/utils/authCallback';
 import { resolveCloudIdentityAction } from '@/utils/cloudIdentity';
 import { createCloudSnapshot, mergeCloudSnapshots } from '@/utils/sync';
 
@@ -56,6 +58,10 @@ interface SnapshotRow {
 }
 
 const CloudContext = createContext<CloudContextValue | null>(null);
+
+function authRedirectUrl() {
+  return Linking.createURL('auth/callback');
+}
 
 function isSnapshot(value: unknown): value is CloudSnapshot {
   if (!value || typeof value !== 'object') return false;
@@ -100,6 +106,7 @@ export function CloudProvider({ children }: { children: ReactNode }) {
   const syncingUserId = useRef<string | undefined>(undefined);
   const activeUserId = useRef<string | undefined>(undefined);
   const deletingAccount = useRef(false);
+  const pulledUserId = useRef<string | undefined>(undefined);
   activeUserId.current = session?.user.id;
 
   useEffect(() => {
@@ -131,6 +138,8 @@ export function CloudProvider({ children }: { children: ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (nextSession) deletingAccount.current = false;
+      // Signing out must not skip the initial pull if the same user signs back in.
+      if (!nextSession) pulledUserId.current = undefined;
       setSession(nextSession);
       setStatus(nextSession ? 'local' : 'local');
       setLastError(undefined);
@@ -143,55 +152,38 @@ export function CloudProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const handleAuthCallback = useCallback(async (url?: string | null) => {
+    if (!supabase || !url) return;
+    if (!isTrustedAuthCallback(url, authRedirectUrl())) return;
+
+    const { code, errorDescription } = parseAuthCallback(url);
+    if (errorDescription) {
+      setLastError(errorDescription);
+      setStatus('error');
+      return;
+    }
+    if (!code) return;
+
+    try {
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) throw error;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Connexion sociale impossible.';
+      setLastError(message);
+      setStatus('error');
+    }
+  }, []);
+
   useEffect(() => {
     if (!supabase) return;
-    const client = supabase;
-
-    async function handleAuthCallback(url?: string | null) {
-      if (!url || !url.includes('auth/callback')) return;
-
-      try {
-        const parsed = new URL(url);
-        const fragment = new URLSearchParams(parsed.hash.replace(/^#/, ''));
-        const errorDescription =
-          parsed.searchParams.get('error_description') ??
-          fragment.get('error_description');
-        if (errorDescription) {
-          setLastError(decodeURIComponent(errorDescription));
-          setStatus('error');
-          return;
-        }
-
-        const code = parsed.searchParams.get('code');
-        if (code) {
-          const { error } = await client.auth.exchangeCodeForSession(code);
-          if (error) throw error;
-          return;
-        }
-
-        const accessToken = fragment.get('access_token');
-        const refreshToken = fragment.get('refresh_token');
-        if (accessToken && refreshToken) {
-          const { error } = await client.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          });
-          if (error) throw error;
-        }
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Connexion sociale impossible.';
-        setLastError(message);
-        setStatus('error');
-      }
-    }
 
     void Linking.getInitialURL().then(handleAuthCallback);
     const subscription = Linking.addEventListener('url', ({ url }) => {
       void handleAuthCallback(url);
     });
     return () => subscription.remove();
-  }, []);
+  }, [handleAuthCallback]);
 
   useEffect(() => {
     if (!supabase || Platform.OS === 'web') return;
@@ -379,9 +371,17 @@ export function CloudProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!session || !hydrated || !online) return;
+    const userId = session.user.id;
+    const needsInitialPull = pulledUserId.current !== userId;
+    // A completed push flips `dirty` back to false, which re-runs this effect.
+    // Without this guard that scheduled another full round-trip every time, so
+    // each local change cost two syncs.
+    if (!needsInitialPull && !dirty) return;
+
     const timer = setTimeout(() => {
+      pulledUserId.current = userId;
       void syncNow();
-    }, dirty ? 1200 : 150);
+    }, needsInitialPull ? 150 : 1200);
     return () => clearTimeout(timer);
   }, [dirty, hydrated, online, session, syncNow]);
 
@@ -420,7 +420,7 @@ export function CloudProvider({ children }: { children: ReactNode }) {
     async (provider: 'google' | 'apple'): Promise<AuthResult> => {
       if (!supabase) return { error: 'Supabase n’est pas configuré.' };
       deletingAccount.current = false;
-      const redirectTo = Linking.createURL('auth/callback');
+      const redirectTo = authRedirectUrl();
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: provider as Provider,
         options: {
@@ -432,19 +432,26 @@ export function CloudProvider({ children }: { children: ReactNode }) {
 
       if (Platform.OS !== 'web') {
         if (!data.url) return { error: 'URL de connexion indisponible.' };
-        const supported = await Linking.canOpenURL(data.url);
-        if (!supported) return { error: 'Impossible d’ouvrir la page de connexion.' };
-        await Linking.openURL(data.url);
+        // openAuthSessionAsync keeps the flow in an ephemeral in-app auth
+        // session and hands the callback straight back to us, so the code
+        // never travels through a deep link another app could claim.
+        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+        if (result.type === 'cancel' || result.type === 'dismiss') return {};
+        if (result.type !== 'success') {
+          return { error: 'Impossible d’ouvrir la page de connexion.' };
+        }
+        await handleAuthCallback(result.url);
       }
       return {};
     },
-    [],
+    [handleAuthCallback],
   );
 
   const signOut = useCallback(async (): Promise<AuthResult> => {
     if (!supabase) return {};
     const { error } = await supabase.auth.signOut();
     if (!error) {
+      pulledUserId.current = undefined;
       setSession(null);
       setStatus('local');
     }

@@ -21,7 +21,7 @@ import {
   regenerateInviteCode as regenerateInviteCodeRequest,
   removeFamilyChild as removeFamilyChildRequest,
 } from '@/services/family';
-import { FamilyContext, FamilyMemberSummary, FamilyRole } from '@/types';
+import { FamilyContext, FamilyMemberSummary } from '@/types';
 
 interface FamilyContextValue {
   loading: boolean;
@@ -31,7 +31,7 @@ interface FamilyContextValue {
   error?: string;
   refresh: () => Promise<void>;
   createFamily: (name: string) => Promise<FamilyResult<unknown>>;
-  joinFamily: (code: string, role?: FamilyRole) => Promise<FamilyResult<unknown>>;
+  joinFamily: (code: string) => Promise<FamilyResult<unknown>>;
   regenerateInviteCode: () => Promise<FamilyResult<unknown>>;
   removeChild: (userId: string) => Promise<FamilyResult<unknown>>;
   leaveFamily: () => Promise<FamilyResult<unknown>>;
@@ -48,7 +48,7 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
   const [members, setMembers] = useState<FamilyMemberSummary[]>([]);
   const [error, setError] = useState<string>();
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ silent = false } = {}) => {
     if (initializing) return;
     if (!session) {
       setContext(null);
@@ -58,7 +58,10 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    setLoading(true);
+    // A silent refresh keeps the current data on screen while it revalidates.
+    // SubscriptionProvider folds `familyLoading` into its own `loading`, so
+    // flipping it on every foreground made the paywall-dependent screens blink.
+    if (!silent) setLoading(true);
     const contextResult = await fetchFamilyContext();
     if (contextResult.error) {
       setError(contextResult.error);
@@ -90,7 +93,7 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void refresh();
+      if (state === 'active') void refresh({ silent: true });
     });
     return () => subscription.remove();
   }, [refresh]);
@@ -116,8 +119,7 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
     [runMutation],
   );
   const joinFamily = useCallback(
-    (code: string, role: FamilyRole = 'child') =>
-      runMutation(() => joinFamilyRequest(code, role)),
+    (code: string) => runMutation(() => joinFamilyRequest(code)),
     [runMutation],
   );
   const regenerateInviteCode = useCallback(

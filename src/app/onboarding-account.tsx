@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -22,12 +22,15 @@ import { AppScreen } from '@/components/AppScreen';
 import { OrnamentalCard } from '@/components/OrnamentalCard';
 import { Card, PrimaryButton, ProgressBar } from '@/components/ui';
 import { useCloud } from '@/providers/CloudProvider';
+import { useTheme } from '@/providers/ThemeProvider';
 import { useQuranStore } from '@/store/useQuranStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 
 type BusyAction = 'google' | 'apple' | 'signin' | 'signup';
 
 export default function OnboardingAccountScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const finishAccountOnboarding = useQuranStore(
     (state) => state.finishAccountOnboarding,
   );
@@ -256,7 +259,8 @@ export default function OnboardingAccountScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     alignItems: 'stretch',
     paddingBottom: spacing.xl,
@@ -275,7 +279,7 @@ const styles = StyleSheet.create({
   icon: {
     alignItems: 'center',
     alignSelf: 'center',
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderColor: colors.border,
     borderRadius: radius.pill,
     borderWidth: 1,
@@ -341,7 +345,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   googleMark: {
-    color: '#4285F4',
+    color: colors.brandGoogle,
     fontFamily: typography.extraBold,
     fontSize: 20,
   },
@@ -431,4 +435,5 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.72,
   },
-});
+  });
+}

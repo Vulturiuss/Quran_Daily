@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -19,10 +19,13 @@ import { Card, IconButton, PrimaryButton, ProgressBar } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
 import { getVerses } from '@/data/verses';
 import { useQuranAudio } from '@/providers/AudioProvider';
+import { useTheme } from '@/providers/ThemeProvider';
 import { useQuranStore } from '@/store/useQuranStore';
-import { colors, spacing, typography } from '@/theme';
+import { Palette, spacing, typography } from '@/theme';
 
 export default function LearnSessionScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [mode, setMode] = useState<'study' | 'test'>('study');
   const session = useQuranStore((state) => state.activeSession);
   const learnCurrentVerse = useQuranStore((state) => state.learnCurrentVerse);
@@ -186,7 +189,8 @@ export default function LearnSessionScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     paddingBottom: spacing.md,
   },
@@ -286,4 +290,5 @@ const styles = StyleSheet.create({
     maxWidth: 300,
     textAlign: 'center',
   },
-});
+  });
+}

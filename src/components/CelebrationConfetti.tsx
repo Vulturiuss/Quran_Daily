@@ -1,22 +1,25 @@
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 
-import { colors } from '@/theme';
+import { useTheme } from '@/providers/ThemeProvider';
 
+// The particle layout is theme-independent; only the colour token is resolved at
+// render time from the active palette.
 const particles = [
-  { left: '7%', symbol: '✦', color: colors.gold, delay: 0, drift: 18 },
-  { left: '15%', symbol: '•', color: colors.success, delay: 140, drift: -15 },
-  { left: '24%', symbol: '☾', color: colors.goldSoft, delay: 40, drift: 24 },
-  { left: '33%', symbol: '✧', color: colors.text, delay: 220, drift: -20 },
-  { left: '42%', symbol: '•', color: colors.gold, delay: 80, drift: 14 },
-  { left: '51%', symbol: '✦', color: colors.success, delay: 180, drift: -12 },
-  { left: '60%', symbol: '☾', color: colors.gold, delay: 20, drift: 22 },
-  { left: '69%', symbol: '•', color: colors.text, delay: 260, drift: -18 },
-  { left: '78%', symbol: '✧', color: colors.goldSoft, delay: 110, drift: 16 },
-  { left: '87%', symbol: '✦', color: colors.gold, delay: 200, drift: -25 },
+  { left: '7%', symbol: '✦', tone: 'gold', delay: 0, drift: 18 },
+  { left: '15%', symbol: '•', tone: 'success', delay: 140, drift: -15 },
+  { left: '24%', symbol: '☾', tone: 'goldSoft', delay: 40, drift: 24 },
+  { left: '33%', symbol: '✧', tone: 'text', delay: 220, drift: -20 },
+  { left: '42%', symbol: '•', tone: 'gold', delay: 80, drift: 14 },
+  { left: '51%', symbol: '✦', tone: 'success', delay: 180, drift: -12 },
+  { left: '60%', symbol: '☾', tone: 'gold', delay: 20, drift: 22 },
+  { left: '69%', symbol: '•', tone: 'text', delay: 260, drift: -18 },
+  { left: '78%', symbol: '✧', tone: 'goldSoft', delay: 110, drift: 16 },
+  { left: '87%', symbol: '✦', tone: 'gold', delay: 200, drift: -25 },
 ] as const;
 
 export function CelebrationConfetti() {
+  const { colors } = useTheme();
   const progress = useRef(particles.map(() => new Animated.Value(0))).current;
 
   useEffect(() => {
@@ -46,7 +49,7 @@ export function CelebrationConfetti() {
             style={[
               styles.particle,
               {
-                color: particle.color,
+                color: colors[particle.tone],
                 left: particle.left,
                 opacity: value.interpolate({
                   inputRange: [0, 0.12, 0.78, 1],

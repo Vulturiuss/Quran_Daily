@@ -1,7 +1,9 @@
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { BookOpen, Check, ChevronRight, Crown, Sparkles } from 'lucide-react-native';
 
-import { colors, radius, spacing, typography } from '@/theme';
+import { useTheme } from '@/providers/ThemeProvider';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { Surah, UserSurahProgress } from '@/types';
 
 export function SurahRow({
@@ -17,6 +19,8 @@ export function SurahRow({
   selected?: boolean;
   premiumLocked?: boolean;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const status = progress?.status ?? 'locked';
   const StatusIcon = premiumLocked
     ? Crown
@@ -104,7 +108,8 @@ export function SurahRow({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   row: {
     alignItems: 'center',
     backgroundColor: colors.surface,
@@ -117,7 +122,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   selected: {
-    backgroundColor: 'rgba(212,163,115,0.13)',
+    backgroundColor: withAlpha(colors.gold, 0.13),
     borderColor: colors.gold,
   },
   pressed: {
@@ -164,7 +169,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   miniProgress: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: withAlpha(colors.white, 0.08),
     borderRadius: radius.pill,
     height: 4,
     marginTop: spacing.sm,
@@ -184,4 +189,5 @@ const styles = StyleSheet.create({
     fontFamily: typography.bold,
     fontSize: 10,
   },
-});
+  });
+}

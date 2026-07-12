@@ -1,6 +1,7 @@
 import {
   createContext,
   ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -45,6 +46,14 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const repeatTarget = useRef(0);
   const [repeatRemaining, setRepeatRemaining] = useState(0);
   const finishHandled = useRef(false);
+  // `status` ticks every 200 ms while playing. Reading it through a ref keeps
+  // playVerse/stop stable, so the context value below does not have to be
+  // rebuilt 5x/s — which used to re-render every consumer, including the
+  // hundreds of verse buttons mounted during a review of a long surah.
+  const statusRef = useRef(status);
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   useEffect(() => {
     void setAudioModeAsync({
@@ -79,56 +88,63 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     }
   }, [currentTrackId, player, status.didJustFinish, status.error]);
 
-  async function playVerse(verse: Verse, reciterId: string, repeatCount = 1) {
-    const trackId = `${reciterId}:${verse.verseKey}`;
-    setError(undefined);
-    setCompletedRepeatTrackId(undefined);
+  const playVerse = useCallback(
+    async (verse: Verse, reciterId: string, repeatCount = 1) => {
+      const trackId = `${reciterId}:${verse.verseKey}`;
+      const current = statusRef.current;
+      setError(undefined);
+      setCompletedRepeatTrackId(undefined);
 
-    if (currentTrackId === trackId) {
-      if (status.playing) {
-        player.pause();
+      if (currentTrackId === trackId) {
+        if (current.playing) {
+          player.pause();
+          return;
+        }
+
+        repeatTarget.current = Math.max(1, repeatCount);
+        repeatRemainingRef.current = repeatTarget.current;
+        setRepeatRemaining(repeatTarget.current);
+        try {
+          if (
+            current.didJustFinish ||
+            (current.duration > 0 && current.currentTime >= current.duration)
+          ) {
+            await player.seekTo(0);
+          }
+          player.play();
+        } catch (caught) {
+          setError(caught instanceof Error ? caught.message : 'Impossible de lire le verset.');
+        }
         return;
       }
 
-      repeatTarget.current = Math.max(1, repeatCount);
-      repeatRemainingRef.current = repeatTarget.current;
-      setRepeatRemaining(repeatTarget.current);
+      setLoadingTrackId(trackId);
       try {
-        if (status.didJustFinish || (status.duration > 0 && status.currentTime >= status.duration)) {
-          await player.seekTo(0);
-        }
+        const audioUrl = await getVerseAudioUrl(verse, reciterId);
+        if (!audioUrl) throw new Error('Audio indisponible pour ce verset.');
+
+        player.replace(audioUrl);
+        repeatTarget.current = Math.max(1, repeatCount);
+        repeatRemainingRef.current = repeatTarget.current;
+        setRepeatRemaining(repeatTarget.current);
+        finishHandled.current = false;
+        setCurrentTrackId(trackId);
         player.play();
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : 'Impossible de lire le verset.');
+        setError(caught instanceof Error ? caught.message : 'Impossible de charger l’audio.');
+      } finally {
+        setLoadingTrackId(undefined);
       }
-      return;
-    }
+    },
+    [currentTrackId, player],
+  );
 
-    setLoadingTrackId(trackId);
-    try {
-      const audioUrl = await getVerseAudioUrl(verse, reciterId);
-      if (!audioUrl) throw new Error('Audio indisponible pour ce verset.');
-
-      player.replace(audioUrl);
-      repeatTarget.current = Math.max(1, repeatCount);
-      repeatRemainingRef.current = repeatTarget.current;
-      setRepeatRemaining(repeatTarget.current);
-      finishHandled.current = false;
-      setCurrentTrackId(trackId);
-      player.play();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Impossible de charger l’audio.');
-    } finally {
-      setLoadingTrackId(undefined);
-    }
-  }
-
-  async function stop() {
+  const stop = useCallback(async () => {
     player.pause();
     repeatRemainingRef.current = 0;
     setRepeatRemaining(0);
-    if (status.currentTime > 0) await player.seekTo(0);
-  }
+    if (statusRef.current.currentTime > 0) await player.seekTo(0);
+  }, [player]);
 
   const value = useMemo<AudioContextValue>(
     () => ({
@@ -147,12 +163,11 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       currentTrackId,
       error,
       loadingTrackId,
+      playVerse,
       repeatRemaining,
       status.isBuffering,
       status.playing,
-      status.currentTime,
-      status.didJustFinish,
-      status.duration,
+      stop,
     ],
   );
 

@@ -33,6 +33,7 @@ import {
 import { useCloud } from '@/providers/CloudProvider';
 import { getSurah } from '@/data/surahs';
 import { useSubscription } from '@/providers/SubscriptionProvider';
+import { useTheme } from '@/providers/ThemeProvider';
 import {
   FAMILY_ENTITLEMENT_ID,
   FREE_SURAH_COUNT,
@@ -40,7 +41,7 @@ import {
   isFamilyPlanEnabled,
   PREMIUM_ENTITLEMENT_ID,
 } from '@/services/subscription';
-import { colors, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { goBackOrReplace } from '@/utils/navigation';
 import { getPackageFreeTrialLabel } from '@/utils/paywall';
 
@@ -95,6 +96,8 @@ function packageDescription(aPackage: PurchasesPackage) {
 }
 
 export default function SubscriptionScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const params = useLocalSearchParams<{ surah?: string }>();
   const requestedSurah = getSurah(Number(params.surah));
   const { session } = useCloud();
@@ -142,20 +145,28 @@ export default function SubscriptionScreen() {
   }, [activeEntitlement]);
 
   async function buy() {
-    if (!session) {
-      router.push('/account');
-      return;
-    }
     if (!selected) return;
 
     const buyingFamily = Boolean(isFamilyPackage(selected));
     const result = await purchase(selected);
     if (result.success) {
+      // An anonymous purchase is valid: RevenueCat aliases it onto the account
+      // on the next logIn. Requiring an account before paying is a store review
+      // risk, so the account is offered afterwards instead of demanded upfront.
       Alert.alert(
         buyingFamily ? 'Premium Famille activé' : 'Premium activé',
         buyingFamily
           ? 'Tu peux maintenant créer ton espace familial et inviter tes proches.'
           : 'Toutes les fonctionnalités sont maintenant disponibles.',
+        session
+          ? undefined
+          : [
+              { text: 'Plus tard', style: 'cancel' },
+              {
+                text: 'Créer un compte',
+                onPress: () => router.push('/account'),
+              },
+            ],
       );
       return;
     }
@@ -163,10 +174,7 @@ export default function SubscriptionScreen() {
   }
 
   async function restorePurchase() {
-    if (!session) {
-      router.push('/account');
-      return;
-    }
+    // Apple requires restore to work without an account (guideline 5.1.1(v)).
     const result = await restore();
     Alert.alert(
       result.success ? 'Achats restaurés' : 'Restauration terminée',
@@ -347,11 +355,7 @@ export default function SubscriptionScreen() {
               <PrimaryButton
                 icon={Crown}
                 label={
-                  session
-                    ? selectedTrialLabel
-                      ? 'Démarrer l’essai gratuit'
-                      : 'Continuer'
-                    : 'Se connecter pour continuer'
+                  selectedTrialLabel ? 'Démarrer l’essai gratuit' : 'Continuer'
                 }
                 loading={loading}
                 disabled={!selected}
@@ -419,14 +423,15 @@ export default function SubscriptionScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   hero: {
     alignItems: 'center',
     paddingVertical: spacing.xl,
   },
   heroIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.13)',
+    backgroundColor: withAlpha(colors.gold, 0.13),
     borderColor: colors.border,
     borderRadius: radius.pill,
     borderWidth: 1,
@@ -492,7 +497,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   packageSelected: {
-    backgroundColor: 'rgba(212,163,115,0.11)',
+    backgroundColor: withAlpha(colors.gold, 0.11),
     borderColor: colors.gold,
   },
   packageCopy: {
@@ -509,7 +514,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   savings: {
-    backgroundColor: 'rgba(129,199,132,0.14)',
+    backgroundColor: withAlpha(colors.success, 0.14),
     borderRadius: radius.pill,
     color: colors.success,
     fontFamily: typography.extraBold,
@@ -605,7 +610,7 @@ const styles = StyleSheet.create({
   },
   crown: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.13)',
+    backgroundColor: withAlpha(colors.gold, 0.13),
     borderRadius: radius.pill,
     height: 70,
     justifyContent: 'center',
@@ -635,4 +640,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textDecorationLine: 'underline',
   },
-});
+  });
+}

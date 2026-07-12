@@ -20,6 +20,12 @@ export const supabase = isSupabaseConfigured
         persistSession: true,
         detectSessionInUrl: Platform.OS === 'web',
         lock: processLock,
+        // PKCE: the OAuth callback carries a single-use `code` bound to a
+        // locally-stored verifier instead of the tokens themselves. Without it
+        // auth-js defaults to the implicit flow, which would return the access
+        // and refresh tokens in the fragment of a custom-scheme deep link that
+        // any other installed app can claim.
+        flowType: 'pkce',
       },
     })
   : null;

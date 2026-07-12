@@ -89,7 +89,7 @@ function createStyles(colors: Palette) {
     top: 0,
   },
   vignette: {
-    backgroundColor: 'rgba(7,24,16,0.35)',
+    backgroundColor: colors.vignette,
     bottom: 0,
     left: 0,
     position: 'absolute',

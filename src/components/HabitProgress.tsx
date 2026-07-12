@@ -6,7 +6,7 @@ import Svg, { Circle } from 'react-native-svg';
 
 import { Card, ProgressBar } from '@/components/ui';
 import { useTheme } from '@/providers/ThemeProvider';
-import { Palette, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 
 function useStyles() {
   const { colors } = useTheme();
@@ -150,7 +150,7 @@ export function ProgressRing({
           cy={size / 2}
           fill="none"
           r={radiusValue}
-          stroke="rgba(255,255,255,0.08)"
+          stroke={withAlpha(colors.white, 0.08)}
           strokeWidth={strokeWidth}
         />
         <Circle
@@ -178,7 +178,7 @@ function createStyles(colors: Palette) {
   return StyleSheet.create({
   streakBanner: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.08)',
+    backgroundColor: withAlpha(colors.gold, 0.08),
     borderColor: colors.border,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -189,7 +189,7 @@ function createStyles(colors: Palette) {
   },
   streakIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderRadius: radius.pill,
     height: 42,
     justifyContent: 'center',
@@ -212,7 +212,7 @@ function createStyles(colors: Palette) {
   },
   freeze: {
     alignItems: 'center',
-    backgroundColor: 'rgba(129,199,132,0.1)',
+    backgroundColor: withAlpha(colors.success, 0.1),
     borderRadius: radius.pill,
     flexDirection: 'row',
     gap: 4,
@@ -263,7 +263,7 @@ function createStyles(colors: Palette) {
   },
   rewardIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.1)',
+    backgroundColor: withAlpha(colors.gold, 0.1),
     borderRadius: radius.md,
     height: 46,
     justifyContent: 'center',

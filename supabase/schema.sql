@@ -416,73 +416,9 @@ revoke all on function public.create_family_space(text) from public;
 revoke all on function public.create_family_space(text) from anon;
 grant execute on function public.create_family_space(text) to authenticated;
 
-drop function if exists public.join_family_space(text);
-
-create or replace function public.join_family_space(
-  family_code text,
-  member_role text default 'child'
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  current_user_id uuid := auth.uid();
-  target_family public.families%rowtype;
-  current_member_count integer;
-  normalized_role text := lower(coalesce(member_role, 'child'));
-begin
-  if current_user_id is null then
-    raise exception 'Authentication required';
-  end if;
-
-  if exists (
-    select 1 from public.family_members where user_id = current_user_id
-  ) then
-    raise exception 'Ce compte appartient déjà à une famille.';
-  end if;
-
-  if normalized_role not in ('parent', 'child') then
-    raise exception 'Rôle familial invalide.';
-  end if;
-
-  select *
-  into target_family
-  from public.families
-  where invite_code = upper(trim(family_code));
-
-  if target_family.id is null or not public.family_owner_has_access(target_family.id) then
-    raise exception 'Code familial invalide ou abonnement inactif.';
-  end if;
-
-  select count(*)
-  into current_member_count
-  from public.family_members
-  where family_id = target_family.id;
-
-  if current_member_count >= target_family.max_members then
-    raise exception 'Cette famille a atteint sa limite de 5 comptes.';
-  end if;
-
-  insert into public.family_members (family_id, user_id, role)
-  values (target_family.id, current_user_id, normalized_role);
-
-  update public.profiles
-  set family_id = target_family.id,
-      is_parent = normalized_role = 'parent',
-      updated_at = now()
-  where id = current_user_id;
-
-  return public.get_my_family_context();
-end;
-$$;
-
-revoke all on function public.join_family_space(text, text) from public;
-revoke all on function public.join_family_space(text, text) from anon;
-grant execute on function public.join_family_space(text, text) to authenticated;
-
-create or replace function public.regenerate_family_invite_code()
+-- Internal: rotate the invite code so a code that has already been shared can be
+-- invalidated. Not granted to `authenticated` — callers go through the RPCs below.
+create or replace function public.rotate_family_invite_code(target_family_id uuid)
 returns text
 language plpgsql
 security definer
@@ -495,18 +431,154 @@ begin
 
   update public.families
   set invite_code = new_code
-  where id = (
-    select member.family_id
-    from public.family_members member
-    where member.user_id = auth.uid()
-      and member.role = 'parent'
-  );
-
-  if not found then
-    raise exception 'Seul un parent peut renouveler le code familial.';
-  end if;
+  where id = target_family_id;
 
   return new_code;
+end;
+$$;
+
+revoke all on function public.rotate_family_invite_code(uuid) from public;
+revoke all on function public.rotate_family_invite_code(uuid) from anon;
+revoke all on function public.rotate_family_invite_code(uuid) from authenticated;
+
+drop function if exists public.join_family_space(text);
+drop function if exists public.join_family_space(text, text);
+
+-- Joining is always as a child. The role must never come from the client: the
+-- invite code is shared with the very people we are guarding against, so a
+-- client-supplied role let any invitee join as `parent` and read the whole
+-- family's session history, evict members and rotate the invite code.
+-- Promotion is a deliberate act of the owner (see promote_family_member).
+create or replace function public.join_family_space(family_code text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  current_user_id uuid := auth.uid();
+  target_family public.families%rowtype;
+  current_member_count integer;
+begin
+  if current_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if exists (
+    select 1 from public.family_members where user_id = current_user_id
+  ) then
+    raise exception 'Ce compte appartient déjà à une famille.';
+  end if;
+
+  -- `for update` serialises concurrent joins against the member-count check
+  -- below, which would otherwise let simultaneous joins exceed max_members.
+  select *
+  into target_family
+  from public.families
+  where invite_code = upper(trim(family_code))
+  for update;
+
+  if target_family.id is null or not public.family_owner_has_access(target_family.id) then
+    raise exception 'Code familial invalide ou abonnement inactif.';
+  end if;
+
+  select count(*)
+  into current_member_count
+  from public.family_members
+  where family_id = target_family.id;
+
+  if current_member_count >= target_family.max_members then
+    raise exception 'Cette famille a atteint sa limite de % comptes.', target_family.max_members;
+  end if;
+
+  if (
+    select count(*)
+    from public.family_members
+    where family_id = target_family.id
+      and role = 'child'
+  ) >= target_family.max_children then
+    raise exception 'Cette famille a atteint sa limite de % profils enfants.', target_family.max_children;
+  end if;
+
+  insert into public.family_members (family_id, user_id, role)
+  values (target_family.id, current_user_id, 'child');
+
+  update public.profiles
+  set family_id = target_family.id,
+      is_parent = false,
+      updated_at = now()
+  where id = current_user_id;
+
+  return public.get_my_family_context();
+end;
+$$;
+
+revoke all on function public.join_family_space(text) from public;
+revoke all on function public.join_family_space(text) from anon;
+grant execute on function public.join_family_space(text) to authenticated;
+
+-- Only the subscription owner may hand out the parent role, and only to someone
+-- who is already a member of their own family.
+create or replace function public.promote_family_member(member_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  owner_family_id uuid;
+begin
+  select family.id
+  into owner_family_id
+  from public.families family
+  where family.owner_id = auth.uid()
+    and public.family_owner_has_access(family.id);
+
+  if owner_family_id is null then
+    raise exception 'Seul le propriétaire de l’abonnement peut nommer un parent.';
+  end if;
+
+  update public.family_members
+  set role = 'parent'
+  where family_id = owner_family_id
+    and user_id = member_user_id;
+
+  if not found then
+    raise exception 'Membre familial introuvable.';
+  end if;
+
+  update public.profiles
+  set is_parent = true,
+      updated_at = now()
+  where id = member_user_id;
+end;
+$$;
+
+revoke all on function public.promote_family_member(uuid) from public;
+revoke all on function public.promote_family_member(uuid) from anon;
+grant execute on function public.promote_family_member(uuid) to authenticated;
+
+create or replace function public.regenerate_family_invite_code()
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  parent_family_id uuid;
+begin
+  select member.family_id
+  into parent_family_id
+  from public.family_members member
+  where member.user_id = auth.uid()
+    and member.role = 'parent'
+    and public.family_owner_has_access(member.family_id);
+
+  if parent_family_id is null then
+    raise exception 'Un espace Famille actif est nécessaire.';
+  end if;
+
+  return public.rotate_family_invite_code(parent_family_id);
 end;
 $$;
 
@@ -562,6 +634,10 @@ begin
       is_parent = false,
       updated_at = now()
   where id = member_user_id;
+
+  -- The invite code never expires, so an evicted member who still holds it
+  -- could simply re-join. Rotating it is what makes the eviction stick.
+  perform public.rotate_family_invite_code(parent_family_id);
 end;
 $$;
 

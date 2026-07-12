@@ -9,7 +9,8 @@ import {
 import { StyleSheet, View } from 'react-native';
 
 import { IslamicStar } from '@/components/IslamicOrnaments';
-import { colors, typography } from '@/theme';
+import { useTheme } from '@/providers/ThemeProvider';
+import { typography, withAlpha } from '@/theme';
 
 const icons = {
   index: Home,
@@ -20,6 +21,8 @@ const icons = {
 };
 
 export default function TabLayout() {
+  const { colors } = useTheme();
+
   return (
     <Tabs
       screenOptions={({ route }) => {
@@ -29,7 +32,7 @@ export default function TabLayout() {
           tabBarActiveTintColor: colors.gold,
           tabBarInactiveTintColor: colors.textFaint,
           tabBarStyle: {
-            backgroundColor: 'rgba(9,28,19,0.98)',
+            backgroundColor: colors.cardStrong,
             borderColor: colors.borderStrong,
             borderRadius: 25,
             borderTopColor: colors.borderStrong,
@@ -42,7 +45,7 @@ export default function TabLayout() {
             paddingTop: 7,
             position: 'absolute',
             right: 14,
-            shadowColor: '#000000',
+            shadowColor: colors.shadow,
             shadowOffset: { height: 8, width: 0 },
             shadowOpacity: 0.35,
             shadowRadius: 16,
@@ -55,7 +58,7 @@ export default function TabLayout() {
             borderRadius: 19,
             marginHorizontal: 2,
           },
-          tabBarActiveBackgroundColor: 'rgba(212,163,115,0.1)',
+          tabBarActiveBackgroundColor: withAlpha(colors.gold, 0.1),
           tabBarIcon: ({ color, focused, size }) => (
             <View style={styles.tabIcon}>
               <Icon color={color} size={size} strokeWidth={focused ? 2.5 : 2} />

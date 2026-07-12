@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   PixelRatio,
@@ -31,12 +31,15 @@ import { ShareCard } from '@/components/ShareCard';
 import { Card, PrimaryButton } from '@/components/ui';
 import { badgeById } from '@/data/badges';
 import { getSurah } from '@/data/surahs';
+import { useTheme } from '@/providers/ThemeProvider';
 import { useQuranStore } from '@/store/useQuranStore';
-import { colors, radius, spacing, typography } from '@/theme';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { addDays, formatDuration } from '@/utils/date';
 import { buildSessionPreview } from '@/utils/sessionPlan';
 
 export default function SessionCompleteScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const activeSession = useQuranStore((state) => state.activeSession);
   const completeDailySession = useQuranStore((state) => state.completeDailySession);
   const summary = useQuranStore((state) => state.lastSummary);
@@ -52,6 +55,15 @@ export default function SessionCompleteScreen() {
       completeDailySession();
     }
   }, [activeSession, completeDailySession, summary]);
+
+  useEffect(() => {
+    // No session left to settle and nothing to show: either the session earned no
+    // credit (nothing reviewed, nothing learned) or it was already flushed. This
+    // screen has gestures disabled, so without this it is a dead end.
+    if (!activeSession && !summary) {
+      router.replace('/(tabs)');
+    }
+  }, [activeSession, summary]);
 
   async function shareResult() {
     if (!summary) return;
@@ -253,7 +265,8 @@ export default function SessionCompleteScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     alignItems: 'center',
     paddingTop: 44,
@@ -289,7 +302,7 @@ const styles = StyleSheet.create({
   },
   successIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderColor: colors.gold,
     borderRadius: 52,
     borderWidth: 1,
@@ -403,7 +416,7 @@ const styles = StyleSheet.create({
   },
   badgeIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderRadius: radius.md,
     height: 50,
     justifyContent: 'center',
@@ -450,4 +463,5 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontFamily: typography.medium,
   },
-});
+  });
+}

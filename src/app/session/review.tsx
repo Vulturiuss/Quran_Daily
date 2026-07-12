@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -19,11 +19,50 @@ import { Card, IconButton, Pill, PrimaryButton, ProgressBar } from '@/components
 import { getSurah } from '@/data/surahs';
 import { getVerses } from '@/data/verses';
 import { useQuranAudio } from '@/providers/AudioProvider';
+import { useTheme } from '@/providers/ThemeProvider';
 import { useQuranStore } from '@/store/useQuranStore';
-import { colors, radius, spacing, typography } from '@/theme';
-import { ReviewRating } from '@/types';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
+import { ReviewRating, Verse } from '@/types';
+
+// A long surah puts a few hundred of these on screen at once. Memoising the row
+// means a rating tap, a display toggle or an audio state change re-renders only
+// what actually changed instead of every verse in the surah.
+const ReviewVerseLine = memo(function ReviewVerseLine({
+  showTranslation,
+  showTransliteration,
+  verse,
+}: {
+  showTranslation: boolean;
+  showTransliteration: boolean;
+  verse: Verse;
+}) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
+  return (
+    <View style={styles.verseLine}>
+      <View style={styles.verseCopy}>
+        <ArabicText size={27} style={styles.verseArabic}>
+          {verse.textArabic}
+        </ArabicText>
+        {showTranslation ? <Text style={styles.translation}>{verse.textFr}</Text> : null}
+        {showTransliteration ? (
+          <Text style={styles.transliteration}>{verse.textTranslit}</Text>
+        ) : null}
+      </View>
+      <View style={styles.verseActions}>
+        <VerseAudioButton compact verse={verse} />
+        <View style={styles.verseNumber}>
+          <Text style={styles.verseNumberText}>{verse.verseNumber}</Text>
+        </View>
+      </View>
+    </View>
+  );
+});
 
 export default function ReviewSessionScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const scrollRef = useRef<ScrollView>(null);
   const session = useQuranStore((state) => state.activeSession);
   const rateCurrentReview = useQuranStore((state) => state.rateCurrentReview);
@@ -103,6 +142,7 @@ export default function ReviewSessionScreen() {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         ref={scrollRef}
+        removeClippedSubviews
         showsVerticalScrollIndicator={false}
         style={styles.scroll}
       >
@@ -117,25 +157,12 @@ export default function ReviewSessionScreen() {
         <Card gradient style={styles.recitationCard}>
           {verses.length ? (
             verses.map((verse) => (
-              <View key={verse.verseNumber} style={styles.verseLine}>
-                <View style={styles.verseCopy}>
-                  <ArabicText size={27} style={styles.verseArabic}>
-                    {verse.textArabic}
-                  </ArabicText>
-                  {profile.showReviewTranslation ? (
-                    <Text style={styles.translation}>{verse.textFr}</Text>
-                  ) : null}
-                  {profile.showReviewTransliteration ? (
-                    <Text style={styles.transliteration}>{verse.textTranslit}</Text>
-                  ) : null}
-                </View>
-                <View style={styles.verseActions}>
-                  <VerseAudioButton compact verse={verse} />
-                  <View style={styles.verseNumber}>
-                    <Text style={styles.verseNumberText}>{verse.verseNumber}</Text>
-                  </View>
-                </View>
-              </View>
+              <ReviewVerseLine
+                key={verse.verseNumber}
+                showTranslation={profile.showReviewTranslation}
+                showTransliteration={profile.showReviewTransliteration}
+                verse={verse}
+              />
             ))
           ) : (
             <View style={styles.memoryPrompt}>
@@ -212,7 +239,8 @@ export default function ReviewSessionScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     paddingBottom: spacing.sm,
   },
@@ -266,7 +294,7 @@ const styles = StyleSheet.create({
   },
   verseLine: {
     alignItems: 'center',
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomColor: withAlpha(colors.white, 0.06),
     borderBottomWidth: 1,
     flexDirection: 'row',
     gap: spacing.md,
@@ -378,4 +406,5 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     textAlign: 'center',
   },
-});
+  });
+}

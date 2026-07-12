@@ -10,7 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { AndalusianArch } from '@/components/IslamicOrnaments';
 import { useTheme } from '@/providers/ThemeProvider';
-import { Palette, radius, spacing } from '@/theme';
+import { Palette, radius, spacing, withAlpha } from '@/theme';
 
 const patternSource = require('../../assets/andalusian-pattern-v1.jpg');
 
@@ -35,11 +35,7 @@ export function OrnamentalCard({
         style={styles.pattern}
       />
       <LinearGradient
-        colors={[
-          'rgba(7,25,17,0.18)',
-          'rgba(16,52,35,0.7)',
-          'rgba(8,29,19,0.94)',
-        ]}
+        colors={[...colors.ornamentGradient]}
         end={{ x: 1, y: 1 }}
         pointerEvents="none"
         start={{ x: 0, y: 0 }}
@@ -61,12 +57,12 @@ function createStyles(colors: Palette) {
   return StyleSheet.create({
   shell: {
     backgroundColor: colors.surface,
-    borderColor: 'rgba(232,204,107,0.46)',
+    borderColor: withAlpha(colors.goldBright, 0.46),
     borderRadius: radius.lg,
     borderWidth: 1,
     elevation: 6,
     overflow: 'hidden',
-    shadowColor: '#000000',
+    shadowColor: colors.shadow,
     shadowOffset: { height: 8, width: 0 },
     shadowOpacity: 0.24,
     shadowRadius: 18,

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -34,11 +34,13 @@ import {
 import { useCloud } from '@/providers/CloudProvider';
 import { useFamily } from '@/providers/FamilyProvider';
 import { useSubscription } from '@/providers/SubscriptionProvider';
-import { colors, radius, spacing, typography } from '@/theme';
-import { FamilyRole } from '@/types';
+import { useTheme } from '@/providers/ThemeProvider';
+import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { goBackOrReplace } from '@/utils/navigation';
 
 export default function FamilyScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { session } = useCloud();
   const { isFamily } = useSubscription();
   const {
@@ -57,7 +59,6 @@ export default function FamilyScreen() {
   } = useFamily();
   const [familyName, setFamilyName] = useState('');
   const [inviteCode, setInviteCode] = useState('');
-  const [joinRole, setJoinRole] = useState<FamilyRole>('child');
   const parents = members.filter((member) => member.role === 'parent');
   const children = members.filter((member) => member.role === 'child');
   const slotsRemaining = context
@@ -74,14 +75,14 @@ export default function FamilyScreen() {
       Alert.alert('Code requis', 'Saisis le code transmis par ta famille.');
       return;
     }
-    const result = await joinFamily(inviteCode, joinRole);
+    const result = await joinFamily(inviteCode);
     if (!result.error) setInviteCode('');
   }
 
   async function shareCode() {
     if (!context?.inviteCode) return;
     await Share.share({
-      message: `Rejoins ma famille sur Quran Daily avec le code ${context.inviteCode}. Connecte-toi avec ton propre compte puis choisis Parent ou Enfant dans Réglages > Famille.`,
+      message: `Rejoins ma famille sur Quran Daily avec le code ${context.inviteCode}. Connecte-toi avec ton propre compte puis saisis le code dans Réglages > Famille.`,
       title: 'Invitation Quran Daily Famille',
     });
   }
@@ -433,47 +434,10 @@ export default function FamilyScreen() {
               <View style={styles.familyCopy}>
                 <Text style={styles.settingTitle}>J’ai reçu un code</Text>
                 <Text style={styles.settingText}>
-                  Utilise ton compte personnel et choisis ton rôle dans la famille.
+                  Utilise ton compte personnel. Tu rejoins la famille comme enfant :
+                  seul le propriétaire de l’abonnement peut nommer un parent.
                 </Text>
               </View>
-            </View>
-            <View style={styles.rolePicker}>
-              <Pressable
-                accessibilityRole="radio"
-                accessibilityState={{ selected: joinRole === 'child' }}
-                onPress={() => setJoinRole('child')}
-                style={[
-                  styles.roleOption,
-                  joinRole === 'child' && styles.roleOptionSelected,
-                ]}
-              >
-                <UserRound
-                  color={joinRole === 'child' ? colors.gold : colors.textMuted}
-                  size={19}
-                />
-                <View style={styles.familyCopy}>
-                  <Text style={styles.roleTitle}>Enfant</Text>
-                  <Text style={styles.roleText}>Ma progression est suivie</Text>
-                </View>
-              </Pressable>
-              <Pressable
-                accessibilityRole="radio"
-                accessibilityState={{ selected: joinRole === 'parent' }}
-                onPress={() => setJoinRole('parent')}
-                style={[
-                  styles.roleOption,
-                  joinRole === 'parent' && styles.roleOptionSelected,
-                ]}
-              >
-                <ShieldCheck
-                  color={joinRole === 'parent' ? colors.gold : colors.textMuted}
-                  size={19}
-                />
-                <View style={styles.familyCopy}>
-                  <Text style={styles.roleTitle}>Parent</Text>
-                  <Text style={styles.roleText}>Je peux suivre les enfants</Text>
-                </View>
-              </Pressable>
             </View>
             <TextInput
               autoCapitalize="characters"
@@ -501,7 +465,8 @@ export default function FamilyScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   centerCard: {
     alignItems: 'center',
     gap: spacing.md,
@@ -527,7 +492,7 @@ const styles = StyleSheet.create({
   },
   familyIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.12)',
+    backgroundColor: withAlpha(colors.gold, 0.12),
     borderRadius: radius.pill,
     height: 58,
     justifyContent: 'center',
@@ -558,7 +523,7 @@ const styles = StyleSheet.create({
   },
   activeBadge: {
     alignItems: 'center',
-    backgroundColor: 'rgba(129,199,132,0.1)',
+    backgroundColor: withAlpha(colors.success, 0.1),
     borderRadius: radius.pill,
     flexDirection: 'row',
     gap: 4,
@@ -593,7 +558,7 @@ const styles = StyleSheet.create({
   },
   settingIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.1)',
+    backgroundColor: withAlpha(colors.gold, 0.1),
     borderRadius: radius.md,
     height: 44,
     justifyContent: 'center',
@@ -672,7 +637,7 @@ const styles = StyleSheet.create({
   },
   childAvatar: {
     alignItems: 'center',
-    backgroundColor: 'rgba(212,163,115,0.1)',
+    backgroundColor: withAlpha(colors.gold, 0.1),
     borderRadius: radius.pill,
     height: 46,
     justifyContent: 'center',
@@ -739,36 +704,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingVertical: spacing.xl,
   },
-  rolePicker: {
-    gap: spacing.sm,
-    marginTop: spacing.lg,
-  },
-  roleOption: {
-    alignItems: 'center',
-    backgroundColor: colors.backgroundDeep,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: spacing.md,
-    minHeight: 62,
-    padding: spacing.md,
-  },
-  roleOptionSelected: {
-    backgroundColor: 'rgba(212,163,115,0.11)',
-    borderColor: colors.gold,
-  },
-  roleTitle: {
-    color: colors.text,
-    fontFamily: typography.bold,
-    fontSize: 14,
-  },
-  roleText: {
-    color: colors.textMuted,
-    fontFamily: typography.regular,
-    fontSize: 11,
-    marginTop: 2,
-  },
   input: {
     backgroundColor: colors.backgroundDeep,
     borderColor: colors.border,
@@ -795,4 +730,5 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     textAlign: 'center',
   },
-});
+  });
+}
