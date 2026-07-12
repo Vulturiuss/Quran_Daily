@@ -1,3 +1,5 @@
+import type { ThemeId } from '@/theme';
+
 export type SurahStatus = 'locked' | 'learning' | 'known';
 export type ReviewRating = 'good' | 'hard' | 'forgot';
 
@@ -45,7 +47,7 @@ export interface UserProfile {
   preferredReciter: string;
   showReviewTransliteration: boolean;
   showReviewTranslation: boolean;
-  theme: 'teal' | 'pink' | 'blue';
+  theme: ThemeId;
   learningQueue: number[];
 }
 

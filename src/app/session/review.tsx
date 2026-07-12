@@ -294,7 +294,7 @@ function createStyles(colors: Palette) {
   },
   verseLine: {
     alignItems: 'center',
-    borderBottomColor: withAlpha(colors.white, 0.06),
+    borderBottomColor: withAlpha(colors.ink, 0.06),
     borderBottomWidth: 1,
     flexDirection: 'row',
     gap: spacing.md,

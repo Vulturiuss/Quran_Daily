@@ -6,6 +6,10 @@ import { useQuranAudio } from '@/providers/AudioProvider';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { useTheme } from '@/providers/ThemeProvider';
 import { useQuranStore } from '@/store/useQuranStore';
+import {
+  effectiveReciter,
+  hasFullAccess as computeFullAccess,
+} from '@/utils/access';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { Verse } from '@/types';
 
@@ -31,10 +35,11 @@ export function VerseAudioButton({
     loading: subscriptionLoading,
   } = useSubscription();
   const selectedReciter = requestedReciterId ?? preferredReciter;
-  const reciterId =
-    configured && !subscriptionLoading && !isPremium
-      ? 'mishary'
-      : selectedReciter;
+  // While the subscription is still resolving, honour the user's choice rather
+  // than flipping them to the free reciter and back.
+  const reciterId = subscriptionLoading
+    ? selectedReciter
+    : effectiveReciter(computeFullAccess(configured, isPremium), selectedReciter);
   const {
     completedRepeatTrackId,
     currentTrackId,

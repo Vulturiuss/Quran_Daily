@@ -59,7 +59,10 @@ function ThemedStack() {
   const { colors } = useTheme();
 
   return (
-    <Stack
+    <>
+      {/* On the light theme, white status-bar icons would be invisible. */}
+      <StatusBar style={colors.scheme === 'light' ? 'dark' : 'light'} />
+      <Stack
       screenOptions={{
         animation: 'fade_from_bottom',
         contentStyle: { backgroundColor: colors.background },
@@ -81,8 +84,9 @@ function ThemedStack() {
       <Stack.Screen name="session/review" options={{ gestureEnabled: false }} />
       <Stack.Screen name="session/learn" options={{ gestureEnabled: false }} />
       <Stack.Screen name="session/complete" options={{ gestureEnabled: false }} />
-      <Stack.Screen name="surah/[number]" />
-    </Stack>
+        <Stack.Screen name="surah/[number]" />
+      </Stack>
+    </>
   );
 }
 
@@ -103,23 +107,25 @@ export default function RootLayout() {
   }
 
   return (
-    <ThemeProvider>
-      <SafeAreaProvider>
-        <CloudProvider>
-          <FamilyProvider>
-            <ReminderProvider>
-              <SubscriptionProvider>
-                <GamificationProvider>
+    <SafeAreaProvider>
+      <CloudProvider>
+        <FamilyProvider>
+          <ReminderProvider>
+            <SubscriptionProvider>
+              <GamificationProvider>
+                {/* ThemeProvider sits below SubscriptionProvider: themes are a
+                    Premium feature, so it needs to know the tier to fall back to
+                    the default palette for free users. */}
+                <ThemeProvider>
                   <AudioProvider>
-                    <StatusBar style="light" />
                     <ThemedStack />
                   </AudioProvider>
-                </GamificationProvider>
-              </SubscriptionProvider>
-            </ReminderProvider>
-          </FamilyProvider>
-        </CloudProvider>
-      </SafeAreaProvider>
-    </ThemeProvider>
+                </ThemeProvider>
+              </GamificationProvider>
+            </SubscriptionProvider>
+          </ReminderProvider>
+        </FamilyProvider>
+      </CloudProvider>
+    </SafeAreaProvider>
   );
 }

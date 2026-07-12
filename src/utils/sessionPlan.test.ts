@@ -60,7 +60,10 @@ test('builds tomorrow preview from due reviews and remaining verses', () => {
   });
 });
 
-test('filters premium content from a free daily preview', () => {
+test('no surah is gated: every due surah counts towards the preview', () => {
+  // Surah 2 (Al-Baqara) used to be Premium-only and was filtered out of a free
+  // user's preview. Nothing is gated any more — the only bound is the daily goal,
+  // which is 2 reviews here.
   const result = buildSessionPreview(
     {
       2: progress(2, { nextReviewAt: '2026-06-15T08:00:00.000Z' }),
@@ -73,17 +76,42 @@ test('filters premium content from a free daily preview', () => {
     },
     profile,
     new Date('2026-06-16T12:00:00.000Z'),
-    3,
-    [1, 108, 112, 113, 114],
   );
 
-  assert.deepEqual(result, {
-    estimatedMinutes: 2,
-    learningVerseEnd: undefined,
-    learningVerseStart: undefined,
-    reviewCount: 1,
-    reviewSurahNumbers: [112],
-    versesCount: 0,
-    learningSurah: undefined,
-  });
+  assert.equal(result.reviewCount, 2, 'both due surahs are reviewable');
+  assert.deepEqual(
+    [...result.reviewSurahNumbers].sort((a, b) => a - b),
+    [2, 112],
+  );
+  assert.equal(result.learningSurah, 3, 'the learning surah is not gated either');
+  assert.equal(result.versesCount, 2, 'the full daily goal of 2 verses');
+});
+
+test('with several surahs learnt in parallel, the preview follows the chosen one', () => {
+  const state = {
+    3: progress(3, {
+      status: 'learning',
+      versesLearned: 1,
+      totalVerses: 4,
+      updatedAt: '2026-06-16T09:00:00.000Z',
+    }),
+    103: progress(103, {
+      status: 'learning',
+      versesLearned: 0,
+      totalVerses: 3,
+      updatedAt: '2026-06-16T10:00:00.000Z',
+    }),
+  };
+  const at = new Date('2026-06-16T12:00:00.000Z');
+
+  assert.equal(
+    buildSessionPreview(state, profile, at).learningSurah,
+    103,
+    'defaults to the most recently touched surah',
+  );
+  assert.equal(
+    buildSessionPreview(state, profile, at, 3).learningSurah,
+    3,
+    'follows the explicit choice',
+  );
 });

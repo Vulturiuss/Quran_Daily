@@ -6,7 +6,6 @@ import {
   CalendarClock,
   ChevronRight,
   Clock3,
-  LockKeyhole,
   RotateCcw,
   ShieldCheck,
   Sparkles,
@@ -23,9 +22,7 @@ import {
 import { getSurah } from '@/data/surahs';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { useTheme } from '@/providers/ThemeProvider';
-import { FREE_SURAH_NUMBERS } from '@/services/subscription';
 import {
-  FREE_MAX_REVIEWS,
   hasFullAccess as computeFullAccess,
   sessionAccess,
 } from '@/utils/access';
@@ -139,32 +136,12 @@ export default function ReviewScreen() {
   const { configured, isPremium } = useSubscription();
   const hasFullAccess = computeFullAccess(configured, isPremium);
   const now = useMemo(() => new Date(), []);
-  const freeSurahs = useMemo(() => new Set<number>(FREE_SURAH_NUMBERS), []);
-  const reviewLimit = hasFullAccess
-    ? profile.dailyGoalReviews
-    : Math.min(FREE_MAX_REVIEWS, profile.dailyGoalReviews);
+  const reviewLimit = profile.dailyGoalReviews;
   const todayRecord = history.find((record) => record.date === dateKey(now));
 
   const known = useMemo(
-    () =>
-      Object.values(progress).filter(
-        (item) =>
-          item.status === 'known' &&
-          (hasFullAccess || freeSurahs.has(item.surahNumber)),
-      ),
-    [freeSurahs, hasFullAccess, progress],
-  );
-  const lockedDueCount = useMemo(
-    () =>
-      hasFullAccess
-        ? 0
-        : Object.values(progress).filter(
-            (item) =>
-              item.status === 'known' &&
-              !freeSurahs.has(item.surahNumber) &&
-              isDue(item, now),
-          ).length,
-    [freeSurahs, hasFullAccess, now, progress],
+    () => Object.values(progress).filter((item) => item.status === 'known'),
+    [progress],
   );
   const dueReviews = sortByReviewPriority(known.filter((item) => isDue(item, now)));
   const dailyReviews = dueReviews.slice(0, reviewLimit);
@@ -270,26 +247,6 @@ export default function ReviewScreen() {
           />
         )}
       </Card>
-
-      {lockedDueCount ? (
-        <Card style={styles.lockedCard}>
-          <LockKeyhole color={colors.gold} size={22} />
-          <View style={styles.lockedCopy}>
-            <Text style={styles.lockedTitle}>
-              {lockedDueCount} révision{lockedDueCount > 1 ? 's' : ''} Premium
-            </Text>
-            <Text style={styles.lockedText}>
-              Débloque l’accès complet pour intégrer toutes tes sourates à la routine.
-            </Text>
-          </View>
-          <PrimaryButton
-            compact
-            label="Premium"
-            onPress={() => router.push('/subscription')}
-            variant="surface"
-          />
-        </Card>
-      ) : null}
 
       <SectionHeader
         title={dailyReviews.length ? 'À réviser maintenant' : 'Prochaines révisions'}
@@ -405,28 +362,6 @@ function createStyles(colors: Palette) {
     color: colors.gold,
     fontFamily: typography.bold,
     fontSize: 12,
-  },
-  lockedCard: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: spacing.md,
-    padding: spacing.md,
-  },
-  lockedCopy: {
-    flex: 1,
-  },
-  lockedTitle: {
-    color: colors.text,
-    fontFamily: typography.bold,
-    fontSize: 14,
-  },
-  lockedText: {
-    color: colors.textMuted,
-    fontFamily: typography.regular,
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 2,
   },
   list: {
     gap: spacing.sm,

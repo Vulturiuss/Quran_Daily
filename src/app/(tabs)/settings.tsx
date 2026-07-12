@@ -29,7 +29,11 @@ import { cancelSmartReminders, enableSmartReminders } from '@/services/notificat
 import { reciters } from '@/services/quranApi';
 import { useQuranStore } from '@/store/useQuranStore';
 import { Palette, radius, spacing, themeOptions, typography, withAlpha } from '@/theme';
-import { hasFullAccess as computeFullAccess } from '@/utils/access';
+import {
+  FREE_RECITER_ID,
+  FREE_THEME,
+  hasFullAccess as computeFullAccess,
+} from '@/utils/access';
 
 const goalOptions = [
   { minutes: 3 as const, reviews: 1, verses: 1 },
@@ -45,7 +49,7 @@ const reciterOptions = Object.entries(reciters).map(([id, reciter]) => ({
 const previewVerse = getVerse(1, 1);
 
 export default function SettingsScreen() {
-  const { colors } = useTheme();
+  const { colors, theme, canChangeTheme } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const profile = useQuranStore((state) => state.profile);
   const currentStreak = useQuranStore((state) => state.stats.currentStreak);
@@ -177,17 +181,13 @@ export default function SettingsScreen() {
               key={goal.minutes}
               label={`${goal.minutes} min`}
               selected={profile.dailyGoalMinutes === goal.minutes}
-              onPress={() => {
-                if (!hasFullAccess && goal.reviews > 3) {
-                  router.push('/subscription');
-                  return;
-                }
+              onPress={() =>
                 updateProfile({
                   dailyGoalMinutes: goal.minutes,
                   dailyGoalReviews: goal.reviews,
                   dailyGoalVerses: goal.verses,
-                });
-              }}
+                })
+              }
             />
           ))}
         </View>
@@ -259,7 +259,7 @@ export default function SettingsScreen() {
             >
               <Pressable
                 accessibilityLabel={`${reciter.label}. ${reciter.style}${
-                  !hasFullAccess && reciter.id !== 'mishary'
+                  !hasFullAccess && reciter.id !== FREE_RECITER_ID
                     ? '. Réservé à Premium'
                     : ''
                 }`}
@@ -268,7 +268,7 @@ export default function SettingsScreen() {
                   selected: profile.preferredReciter === reciter.id,
                 }}
                 onPress={() => {
-                  if (!hasFullAccess && reciter.id !== 'mishary') {
+                  if (!hasFullAccess && reciter.id !== FREE_RECITER_ID) {
                     router.push('/subscription');
                     return;
                   }
@@ -284,11 +284,11 @@ export default function SettingsScreen() {
                   ]}
                 >
                   {reciter.label}
-                  {!hasFullAccess && reciter.id !== 'mishary' ? ' · Premium' : ''}
+                  {!hasFullAccess && reciter.id !== FREE_RECITER_ID ? ' · Premium' : ''}
                 </Text>
                 <Text style={styles.reciterMeta}>{reciter.style}</Text>
               </Pressable>
-              {previewVerse && (hasFullAccess || reciter.id === 'mishary') ? (
+              {previewVerse && (hasFullAccess || reciter.id === FREE_RECITER_ID) ? (
                 <VerseAudioButton
                   compact
                   label="Aperçu"
@@ -319,16 +319,33 @@ export default function SettingsScreen() {
           </View>
           <View style={styles.settingCopy}>
             <Text style={styles.settingTitle}>Couleur de l’application</Text>
-            <Text style={styles.settingText}>Change l’ambiance visuelle à tout moment.</Text>
+            <Text style={styles.settingText}>
+              {canChangeTheme
+                ? 'Change l’ambiance visuelle à tout moment.'
+                : 'Les thèmes sont inclus dans Premium.'}
+            </Text>
           </View>
         </View>
         <View style={styles.pills}>
           {themeOptions.map((option) => (
             <Pill
               key={option.id}
-              label={option.label}
-              selected={profile.theme === option.id}
-              onPress={() => updateProfile({ theme: option.id })}
+              label={
+                canChangeTheme || option.id === FREE_THEME
+                  ? option.label
+                  : `${option.label} · Premium`
+              }
+              selected={theme === option.id}
+              onPress={() => {
+                // The chosen theme is still stored, so it applies the moment the
+                // user subscribes — but the picker sends them to the paywall
+                // rather than silently doing nothing.
+                if (!canChangeTheme && option.id !== FREE_THEME) {
+                  router.push('/subscription');
+                  return;
+                }
+                updateProfile({ theme: option.id });
+              }}
             />
           ))}
         </View>
@@ -538,7 +555,7 @@ function createStyles(colors: Palette) {
   },
   reciter: {
     alignItems: 'center',
-    borderColor: withAlpha(colors.white, 0.1),
+    borderColor: withAlpha(colors.ink, 0.1),
     borderRadius: radius.md,
     borderWidth: 1,
     flexDirection: 'row',

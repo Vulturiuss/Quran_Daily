@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   BookOpenCheck,
   Check,
-  Crown,
   GraduationCap,
   ListPlus,
   ListX,
@@ -18,16 +17,21 @@ import { AppScreen } from '@/components/AppScreen';
 import { ArabicText } from '@/components/ArabicText';
 import { OrnamentalCard } from '@/components/OrnamentalCard';
 import { VerseCard } from '@/components/VerseCard';
-import { Card, IconButton, PrimaryButton, ProgressBar, SectionHeader } from '@/components/ui';
+import { IconButton, PrimaryButton, ProgressBar, SectionHeader } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
 import { getVerses } from '@/data/verses';
 import { useQuranAudio } from '@/providers/AudioProvider';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { useTheme } from '@/providers/ThemeProvider';
 import { reciters, ReciterId } from '@/services/quranApi';
-import { isFreeSurah } from '@/services/subscription';
 import { useQuranStore } from '@/store/useQuranStore';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
+import {
+  capabilities,
+  effectiveReciter,
+  FREE_RECITER_ID,
+  hasFullAccess as computeFullAccess,
+} from '@/utils/access';
 import { goBackOrReplace } from '@/utils/navigation';
 
 export default function SurahDetailScreen() {
@@ -48,8 +52,6 @@ export default function SurahDetailScreen() {
   const inQueue = learningQueue.includes(number);
   const { error: audioError } = useQuranAudio();
   const { configured, isPremium } = useSubscription();
-  const premiumLocked =
-    configured && !isPremium && !isFreeSurah(number);
 
   if (!surah) {
     return (
@@ -59,48 +61,18 @@ export default function SurahDetailScreen() {
     );
   }
 
-  if (premiumLocked) {
-    return (
-      <AppScreen>
-        <View style={styles.topBar}>
-          <IconButton
-            icon={ArrowLeft}
-            label="Retour"
-            onPress={() => goBackOrReplace('/library')}
-          />
-          <Text style={styles.headerLabel}>Sourate {surah.number}</Text>
-          <View style={styles.placeholder} />
-        </View>
-        <Card gradient style={styles.lockedCard}>
-          <View style={styles.lockedIcon}>
-            <Crown color={colors.gold} size={31} />
-          </View>
-          <ArabicText size={40} style={styles.arabicName}>
-            {surah.name}
-          </ArabicText>
-          <Text style={styles.name}>{surah.nameTranslit}</Text>
-          <Text style={styles.lockedText}>
-            Cette sourate fait partie du parcours Premium avec les 114 sourates, les
-            récitateurs et les statistiques complètes.
-          </Text>
-          <PrimaryButton
-            icon={Crown}
-            label="Découvrir Premium"
-            onPress={() => router.push(`/subscription?surah=${surah.number}` as never)}
-          />
-        </Card>
-      </AppScreen>
-    );
-  }
-
   const value = progress ? progress.versesLearned / progress.totalVerses : 0;
-  const effectiveReciter =
-    configured && !isPremium ? 'mishary' : preferredReciter;
-  const reciter =
-    reciters[effectiveReciter as ReciterId] ?? reciters.mishary;
+  const access = capabilities(computeFullAccess(configured, isPremium));
+  const reciterId = effectiveReciter(
+    access.allReciters,
+    preferredReciter,
+  ) as ReciterId;
+  const reciter = reciters[reciterId] ?? reciters[FREE_RECITER_ID as ReciterId];
 
   function chooseForLearning() {
-    setLearningSurah(number);
+    // Premium learns up to three surahs in parallel; without it, picking a new
+    // surah replaces the current one.
+    setLearningSurah(number, access.maxLearningSurahs);
     if (router.canDismiss()) {
       router.dismissTo('/learn');
     } else {
@@ -363,29 +335,6 @@ function createStyles(colors: Palette) {
     color: colors.error,
     fontFamily: typography.bold,
     marginTop: spacing.xl,
-  },
-  lockedCard: {
-    alignItems: 'center',
-    marginTop: spacing.lg,
-    paddingVertical: spacing.xl,
-  },
-  lockedIcon: {
-    alignItems: 'center',
-    backgroundColor: withAlpha(colors.gold, 0.13),
-    borderRadius: radius.pill,
-    height: 66,
-    justifyContent: 'center',
-    width: 66,
-  },
-  lockedText: {
-    color: colors.textMuted,
-    fontFamily: typography.regular,
-    fontSize: 14,
-    lineHeight: 21,
-    marginBottom: spacing.xl,
-    marginTop: spacing.md,
-    maxWidth: 330,
-    textAlign: 'center',
   },
   });
 }

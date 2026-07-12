@@ -1,4 +1,14 @@
-export type ThemeId = 'teal' | 'pink' | 'blue';
+export type ThemeId =
+  | 'teal'
+  | 'pink'
+  | 'blue'
+  | 'dark'
+  | 'light'
+  | 'gold'
+  | 'grey';
+
+/** Whether the theme paints light text on a dark ground, or the reverse. */
+export type ThemeScheme = 'dark' | 'light';
 
 /**
  * Colour literals belong in this file and nowhere else.
@@ -51,17 +61,33 @@ export function withAlpha(hex: string, alpha: number) {
 // --- theme definition -------------------------------------------------------
 
 interface ThemeSeed {
+  /**
+   * Light text on a dark ground, or the reverse. This is not cosmetic: neutral
+   * veils, hairlines and the ornamental wash are built from `ink`, which flips
+   * with the scheme. A light theme built as if it were dark would render its
+   * hairlines white-on-white — invisible.
+   */
+  scheme: ThemeScheme;
   /** Dominant background. */
   background: string;
   /** Deepest shade, used behind everything and for the splash. */
   backgroundDeep: string;
   /** Base for cards, sheets, vignettes and the ornamental gradients. */
   cardTint: string;
+  /** Main text colour. Dark ink on a light theme. */
+  text: string;
   textMuted: string;
   textFaint: string;
 }
 
 export interface Palette {
+  scheme: ThemeScheme;
+  /**
+   * The colour every neutral veil, hairline and track is built from: white on a
+   * dark theme, dark ink on a light one. Use `withAlpha(colors.ink, a)` instead
+   * of `colors.white` for anything that must stay visible on both.
+   */
+  ink: string;
   background: string;
   backgroundDeep: string;
   surface: string;
@@ -105,13 +131,14 @@ const GOLD_BRIGHT = '#E8CC6B';
 const TEXT = '#F5F5F0';
 const WHITE = '#FFFFFF';
 
+const INK_DARK = '#14120F';
+
 const sharedTokens = {
   gold: GOLD,
   goldSoft: GOLD,
   goldPale: GOLD,
   goldDeep: GOLD,
   goldBright: GOLD_BRIGHT,
-  text: TEXT,
   success: '#81C784',
   warning: '#E7B768',
   error: '#E57373',
@@ -123,67 +150,121 @@ const sharedTokens = {
 };
 
 function buildPalette(seed: ThemeSeed): Palette {
-  const { background, backgroundDeep, cardTint, textMuted, textFaint } = seed;
+  const { scheme, background, backgroundDeep, cardTint, text, textMuted, textFaint } =
+    seed;
+  const light = scheme === 'light';
+  const ink = light ? INK_DARK : WHITE;
 
   return {
     ...sharedTokens,
+    scheme,
+    ink,
     background,
     backgroundDeep,
     surface: background,
     surfaceElevated: background,
     surfaceMuted: background,
+    text,
     textMuted,
     textFaint,
     card: withAlpha(cardTint, 0.94),
     cardStrong: withAlpha(cardTint, 0.95),
-    vignette: withAlpha(darken(cardTint, 0.6), 0.35),
-    divider: withAlpha(darken(cardTint, 0.55), 0.18),
+    // On a light theme the ornamental pattern has to be washed out with light,
+    // not darkened — darkening it would leave a muddy grey behind the content.
+    vignette: light
+      ? withAlpha(cardTint, 0.55)
+      : withAlpha(darken(cardTint, 0.6), 0.35),
+    divider: withAlpha(ink, 0.12),
     overlay: withAlpha(backgroundDeep, 0.62),
-    ornamentGradient: [
-      withAlpha(darken(cardTint, 0.7), 0.18),
-      withAlpha(cardTint, 0.7),
-      withAlpha(darken(cardTint, 0.55), 0.94),
-    ],
-    shareGradient: [
-      withAlpha(darken(cardTint, 0.62), 0.72),
-      withAlpha(darken(cardTint, 0.3), 0.76),
-      withAlpha(cardTint, 0.86),
-    ],
+    ornamentGradient: light
+      ? [withAlpha(cardTint, 0.35), withAlpha(cardTint, 0.75), withAlpha(cardTint, 0.95)]
+      : [
+          withAlpha(darken(cardTint, 0.7), 0.18),
+          withAlpha(cardTint, 0.7),
+          withAlpha(darken(cardTint, 0.55), 0.94),
+        ],
+    shareGradient: light
+      ? [withAlpha(cardTint, 0.7), withAlpha(cardTint, 0.85), withAlpha(cardTint, 0.95)]
+      : [
+          withAlpha(darken(cardTint, 0.62), 0.72),
+          withAlpha(darken(cardTint, 0.3), 0.76),
+          withAlpha(cardTint, 0.86),
+        ],
     cardGradient: [background, background, backgroundDeep],
   };
 }
 
 // `cardTint` for teal reproduces the forest green the cards already used, so the
-// default theme is unchanged; the other themes now derive their own.
+// default theme is unchanged; every other theme derives its own.
 const seeds: Record<ThemeId, ThemeSeed> = {
   teal: {
+    scheme: 'dark',
     background: '#0F766E',
     backgroundDeep: '#134E4A',
     cardTint: '#19382A',
+    text: TEXT,
     textMuted: '#B9CDBF',
     textFaint: '#7F9A88',
   },
   pink: {
+    scheme: 'dark',
     background: '#9D2360',
     backgroundDeep: '#5C1238',
     cardTint: '#3E1029',
+    text: TEXT,
     textMuted: '#E8B9CE',
     textFaint: '#B4789B',
   },
   blue: {
+    scheme: 'dark',
     background: '#0E4C86',
     backgroundDeep: '#082C4F',
     cardTint: '#0D2A46',
+    text: TEXT,
     textMuted: '#AFCBE8',
     textFaint: '#6E96BE',
   },
+  dark: {
+    scheme: 'dark',
+    background: '#1C1C1E',
+    backgroundDeep: '#0E0E10',
+    cardTint: '#26262A',
+    text: TEXT,
+    textMuted: '#B2B2B8',
+    textFaint: '#7A7A80',
+  },
+  light: {
+    scheme: 'light',
+    background: '#FBF8F3',
+    backgroundDeep: '#EFE8DC',
+    cardTint: '#FFFFFF',
+    text: '#1E1B17',
+    textMuted: '#5E574C',
+    textFaint: '#918A7D',
+  },
+  gold: {
+    scheme: 'dark',
+    background: '#8A6B33',
+    backgroundDeep: '#57431E',
+    cardTint: '#3F3117',
+    text: '#FBF3E4',
+    textMuted: '#E4D0AB',
+    textFaint: '#B39B70',
+  },
+  grey: {
+    scheme: 'dark',
+    background: '#4B4F55',
+    backgroundDeep: '#2B2E33',
+    cardTint: '#35383D',
+    text: '#F2F2F0',
+    textMuted: '#C0C3C7',
+    textFaint: '#8A8E93',
+  },
 };
 
-const palettes: Record<ThemeId, Palette> = {
-  teal: buildPalette(seeds.teal),
-  pink: buildPalette(seeds.pink),
-  blue: buildPalette(seeds.blue),
-};
+const palettes = Object.fromEntries(
+  Object.entries(seeds).map(([id, seed]) => [id, buildPalette(seed)]),
+) as Record<ThemeId, Palette>;
 
 export function getPalette(theme: ThemeId | undefined | null): Palette {
   return palettes[theme ?? 'teal'] ?? palettes.teal;
@@ -193,6 +274,10 @@ export const themeOptions: { id: ThemeId; label: string }[] = [
   { id: 'teal', label: 'Teal' },
   { id: 'pink', label: 'Rose' },
   { id: 'blue', label: 'Bleu' },
+  { id: 'dark', label: 'Sombre' },
+  { id: 'light', label: 'Clair' },
+  { id: 'gold', label: 'Doré' },
+  { id: 'grey', label: 'Gris' },
 ];
 
 /**

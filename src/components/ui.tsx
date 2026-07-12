@@ -446,7 +446,7 @@ function createStyles(colors: Palette) {
       fontSize: 14,
     },
     progressTrack: {
-      backgroundColor: withAlpha(colors.white, 0.09),
+      backgroundColor: withAlpha(colors.ink, 0.09),
       borderRadius: radius.pill,
       overflow: 'hidden',
       width: '100%',
@@ -479,7 +479,7 @@ function createStyles(colors: Palette) {
     },
     pill: {
       backgroundColor: colors.surface,
-      borderColor: withAlpha(colors.white, 0.12),
+      borderColor: withAlpha(colors.ink, 0.12),
       borderRadius: radius.pill,
       borderWidth: 1,
       paddingHorizontal: 15,

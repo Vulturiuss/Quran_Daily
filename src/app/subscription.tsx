@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router } from 'expo-router';
 import {
   ArrowLeft,
   Check,
@@ -31,25 +31,25 @@ import {
   SectionHeader,
 } from '@/components/ui';
 import { useCloud } from '@/providers/CloudProvider';
-import { getSurah } from '@/data/surahs';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { useTheme } from '@/providers/ThemeProvider';
 import {
   FAMILY_ENTITLEMENT_ID,
-  FREE_SURAH_COUNT,
-  FREE_SURAH_LABEL,
   isFamilyPlanEnabled,
   PREMIUM_ENTITLEMENT_ID,
 } from '@/services/subscription';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
+import { PREMIUM_MAX_LEARNING_SURAHS } from '@/utils/access';
 import { goBackOrReplace } from '@/utils/navigation';
 import { getPackageFreeTrialLabel } from '@/utils/paywall';
 
+// Premium never sells content: the 114 surahs are learnable and reviewable for
+// free, without a daily cap. It sells capacity and comfort.
 const premiumBenefits = [
-  'Les 114 sourates et leur apprentissage guidé',
-  'Tous les récitateurs disponibles',
-  'Révisions quotidiennes illimitées',
-  'Statistiques détaillées et tous les badges',
+  `Apprends jusqu’à ${PREMIUM_MAX_LEARNING_SURAHS} sourates en parallèle`,
+  'Ta progression détaillée : graphiques, XP, niveaux et badges',
+  'Tous les récitateurs',
+  'Tous les thèmes de couleur',
   'Aucune publicité pendant ton parcours',
 ];
 
@@ -58,7 +58,7 @@ const familyBenefits = [
   'Un ou plusieurs comptes parents',
   'Suivi quotidien des enfants',
   'Progressions séparées pour chaque membre',
-  'Les 114 sourates et récitateurs Premium',
+  'Toutes les fonctionnalités Premium incluses',
 ];
 
 function packageLabel(aPackage: PurchasesPackage) {
@@ -98,8 +98,6 @@ function packageDescription(aPackage: PurchasesPackage) {
 export default function SubscriptionScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const params = useLocalSearchParams<{ surah?: string }>();
-  const requestedSurah = getSurah(Number(params.surah));
   const { session } = useCloud();
   const {
     billingConfigured: configured,
@@ -188,11 +186,7 @@ export default function SubscriptionScreen() {
     <AppScreen>
       <ScreenTitle
         title="Premium & Famille"
-        subtitle={
-          requestedSurah
-            ? `Débloque ${requestedSurah.nameTranslit} et poursuis ton parcours.`
-            : 'Un parcours complet seul, ou partagé avec ta famille.'
-        }
+        subtitle="Les 114 sourates sont gratuites. Premium accélère ton parcours."
         action={
           <IconButton
             icon={ArrowLeft}
@@ -247,12 +241,12 @@ export default function SubscriptionScreen() {
               <Sparkles color={colors.gold} size={31} />
             </View>
             <Text style={styles.heroTitle}>
-              {selectedIsFamily ? 'Une famille, plusieurs parcours' : 'Tout le Coran, à ton rythme'}
+              {selectedIsFamily ? 'Une famille, plusieurs parcours' : 'Va plus loin, plus vite'}
             </Text>
             <Text style={styles.heroText}>
-              {requestedSurah
-                ? `${requestedSurah.nameTranslit} fait partie des 114 sourates accessibles avec Premium.`
-                : `Tu gardes ${FREE_SURAH_COUNT} sourates gratuites (${FREE_SURAH_LABEL}). Premium débloque le parcours complet quand tu veux aller plus loin.`}
+              {selectedIsFamily
+                ? 'Premium pour 5 comptes, avec le suivi quotidien des enfants par les parents.'
+                : `Les 114 sourates restent gratuites, sans limite. Premium te donne ${PREMIUM_MAX_LEARNING_SURAHS} sourates en parallèle, ta progression détaillée, tous les récitateurs et tous les thèmes.`}
             </Text>
           </OrnamentalCard>
 

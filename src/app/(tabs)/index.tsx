@@ -34,9 +34,7 @@ import {
 import { getSurah } from '@/data/surahs';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { useTheme } from '@/providers/ThemeProvider';
-import { FREE_SURAH_NUMBERS, isFreeSurah } from '@/services/subscription';
 import {
-  FREE_MAX_REVIEWS,
   hasFullAccess as computeFullAccess,
   sessionAccess,
 } from '@/utils/access';
@@ -70,15 +68,7 @@ export default function HomeScreen() {
     (total, item) => total + item.versesLearned,
     0,
   );
-  const sessionPlan = buildSessionPreview(
-    progress,
-    profile,
-    new Date(),
-    hasFullAccess
-      ? profile.dailyGoalReviews
-      : Math.min(FREE_MAX_REVIEWS, profile.dailyGoalReviews),
-    hasFullAccess ? undefined : FREE_SURAH_NUMBERS,
-  );
+  const sessionPlan = buildSessionPreview(progress, profile, new Date());
   const sessionIsEmpty =
     sessionPlan.reviewCount === 0 && sessionPlan.versesCount === 0;
   const reviewNames = sessionPlan.reviewSurahNumbers
@@ -103,7 +93,11 @@ export default function HomeScreen() {
     : 0;
 
   function startSession(isBonus = false) {
-    startDailySession(sessionAccess(hasFullAccess, isBonus));
+    // Work on the surah the mission card is actually showing: with several surahs
+    // learnt in parallel, that is not necessarily the store's default.
+    startDailySession(
+      sessionAccess(hasFullAccess, isBonus, sessionPlan.learningSurah),
+    );
     const session = useQuranStore.getState().activeSession;
     router.push(session?.reviewQueue.length ? '/session/review' : '/session/learn');
   }
@@ -238,11 +232,7 @@ export default function HomeScreen() {
             action={
               <Text
                 accessibilityRole="button"
-                onPress={() =>
-                  !hasFullAccess && !isFreeSurah(learningSurah.number)
-                    ? router.push(`/subscription?surah=${learningSurah.number}`)
-                    : router.push('/learn')
-                }
+                onPress={() => router.push('/learn')}
                 style={styles.link}
               >
                 Continuer
@@ -375,7 +365,7 @@ function createStyles(colors: Palette) {
   },
   sessionDetails: {
     alignItems: 'center',
-    backgroundColor: withAlpha(colors.white, 0.04),
+    backgroundColor: withAlpha(colors.ink, 0.04),
     borderRadius: radius.md,
     flexDirection: 'row',
     marginVertical: spacing.lg,

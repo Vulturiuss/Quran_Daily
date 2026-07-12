@@ -28,9 +28,7 @@ import { OrnamentalCard } from '@/components/OrnamentalCard';
 import { Card, Eyebrow, Pill, PrimaryButton, ProgressBar, TimeStepper } from '@/components/ui';
 import { getSurah, onboardingSurahs } from '@/data/surahs';
 import { useTheme } from '@/providers/ThemeProvider';
-import { useSubscription } from '@/providers/SubscriptionProvider';
 import { enableSmartReminders } from '@/services/notifications';
-import { isFreeSurah } from '@/services/subscription';
 import { useQuranStore } from '@/store/useQuranStore';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 
@@ -46,8 +44,6 @@ export default function OnboardingScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const completeOnboarding = useQuranStore((state) => state.completeOnboarding);
-  const { configured, isPremium } = useSubscription();
-  const hasFullAccess = !configured || isPremium;
   const [step, setStep] = useState(0);
   const [displayName, setDisplayName] = useState('');
   const [knownSurahs, setKnownSurahs] = useState<number[]>([1, 112, 113, 114]);
@@ -60,15 +56,12 @@ export default function OnboardingScreen() {
   const learningChoices = useMemo(
     () =>
       learnableNumbers
-        .filter((number) => hasFullAccess || isFreeSurah(number))
         .filter((number) => !knownSurahs.includes(number))
         .map((number) => getSurah(number))
         .filter(Boolean),
-    [hasFullAccess, knownSurahs],
+    [knownSurahs],
   );
-  const selectableKnownSurahs = hasFullAccess
-    ? onboardingSurahs
-    : onboardingSurahs.filter((surah) => isFreeSurah(surah.number));
+  const selectableKnownSurahs = onboardingSurahs;
 
   function toggleKnown(number: number) {
     setKnownSurahs((current) =>

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { BookOpen, Check, ChevronRight, Crown, Sparkles } from 'lucide-react-native';
+import { BookOpen, Check, ChevronRight, Sparkles } from 'lucide-react-native';
 
 import { useTheme } from '@/providers/ThemeProvider';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
@@ -11,50 +11,36 @@ export function SurahRow({
   progress,
   onPress,
   selected,
-  premiumLocked = false,
 }: {
   surah: Surah;
   progress?: UserSurahProgress;
   onPress: () => void;
   selected?: boolean;
-  premiumLocked?: boolean;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const status = progress?.status ?? 'locked';
-  const StatusIcon = premiumLocked
-    ? Crown
-    : status === 'known'
-      ? Check
-      : status === 'learning'
-        ? Sparkles
-        : BookOpen;
+  // No surah is ever locked behind the paywall: the 114 are free.
+  const StatusIcon =
+    status === 'known' ? Check : status === 'learning' ? Sparkles : BookOpen;
   const statusColor =
-    premiumLocked
-      ? colors.gold
-      : status === 'known'
-        ? colors.success
-        : status === 'learning'
-          ? colors.gold
-          : colors.textFaint;
+    status === 'known'
+      ? colors.success
+      : status === 'learning'
+        ? colors.gold
+        : colors.textFaint;
 
   return (
     <Pressable
-      accessibilityHint={
-        premiumLocked
-          ? 'Ouvre la page présentant l’abonnement Premium.'
-          : 'Ouvre le détail de la sourate.'
-      }
+      accessibilityHint="Ouvre le détail de la sourate."
       accessibilityLabel={`${surah.nameTranslit}, ${surah.nameFr}, ${
         surah.totalVerses
       } versets. ${
-        premiumLocked
-          ? 'Réservée à Premium'
-          : status === 'known'
-            ? 'Connue'
-            : status === 'learning'
-              ? `${progress?.versesLearned ?? 0} versets mémorisés`
-              : 'À apprendre'
+        status === 'known'
+          ? 'Connue'
+          : status === 'learning'
+            ? `${progress?.versesLearned ?? 0} versets mémorisés`
+            : 'À apprendre'
       }`}
       accessibilityRole="button"
       onPress={onPress}
@@ -74,7 +60,6 @@ export function SurahRow({
         </View>
         <Text style={styles.meta}>
           {surah.nameFr} · {surah.totalVerses} versets
-          {premiumLocked ? ' · Premium' : ''}
         </Text>
         {status === 'learning' && progress ? (
           <View style={styles.miniProgress}>
@@ -90,17 +75,15 @@ export function SurahRow({
       <View style={styles.status}>
         <StatusIcon size={17} color={statusColor} />
         <Text style={[styles.statusText, { color: statusColor }]}>
-          {premiumLocked
-            ? 'Premium'
-            : status === 'known'
-              ? 'Connue'
-              : status === 'learning'
-                ? `${Math.round(
-                    ((progress?.versesLearned ?? 0) /
-                      Math.max(1, progress?.totalVerses ?? 1)) *
-                      100,
-                  )}%`
-                : ''}
+          {status === 'known'
+            ? 'Connue'
+            : status === 'learning'
+              ? `${Math.round(
+                  ((progress?.versesLearned ?? 0) /
+                    Math.max(1, progress?.totalVerses ?? 1)) *
+                    100,
+                )}%`
+              : ''}
         </Text>
         <ChevronRight size={18} color={colors.textFaint} />
       </View>
@@ -169,7 +152,7 @@ function createStyles(colors: Palette) {
     marginTop: 2,
   },
   miniProgress: {
-    backgroundColor: withAlpha(colors.white, 0.08),
+    backgroundColor: withAlpha(colors.ink, 0.08),
     borderRadius: radius.pill,
     height: 4,
     marginTop: spacing.sm,

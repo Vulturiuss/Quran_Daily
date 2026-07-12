@@ -7,9 +7,7 @@ import { AppScreen } from '@/components/AppScreen';
 import { SurahRow } from '@/components/SurahRow';
 import { IconButton, Pill, ScreenTitle } from '@/components/ui';
 import { surahs } from '@/data/surahs';
-import { useSubscription } from '@/providers/SubscriptionProvider';
 import { useTheme } from '@/providers/ThemeProvider';
-import { isFreeSurah } from '@/services/subscription';
 import { useQuranStore } from '@/store/useQuranStore';
 import { Palette, radius, spacing, typography } from '@/theme';
 import { SurahStatus } from '@/types';
@@ -21,8 +19,6 @@ export default function LibraryScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const progress = useQuranStore((state) => state.progress);
-  const { configured, isPremium } = useSubscription();
-  const hasFullAccess = !configured || isPremium;
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const knownCount = Object.values(progress).filter(
@@ -88,12 +84,7 @@ export default function LibraryScreen() {
         keyExtractor={(item) => String(item.number)}
         renderItem={({ item }) => (
           <SurahRow
-            onPress={() =>
-              !hasFullAccess && !isFreeSurah(item.number)
-                ? router.push(`/subscription?surah=${item.number}` as never)
-                : router.push(`/surah/${item.number}` as never)
-            }
-            premiumLocked={!hasFullAccess && !isFreeSurah(item.number)}
+            onPress={() => router.push(`/surah/${item.number}` as never)}
             progress={progress[item.number]}
             surah={item}
           />

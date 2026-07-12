@@ -25,6 +25,7 @@ import {
   normalizeStats,
   reconcileMissedStreak,
 } from '@/utils/gamification';
+import { healLearningState } from '@/utils/learningQueue';
 import {
   appendSessionEntry,
   normalizeSessionRecord,
@@ -100,12 +101,9 @@ interface OnboardingInput {
   notificationsEnabled: boolean;
 }
 
-interface SessionAccess {
-  maxReviews?: number;
-  allowedSurahNumbers?: readonly number[];
-  isBonus?: boolean;
-  freezeAllowance?: number;
-}
+// No surah is gated any more, so a session is only parameterised by which of the
+// active learning surahs it works on. See src/utils/access.ts.
+import type { SessionAccess } from '@/utils/access';
 
 export interface QuranState {
   hydrated: boolean;
@@ -123,7 +121,12 @@ export interface QuranState {
   refreshGamification: (freezeAllowance: number) => void;
   completeOnboarding: (input: OnboardingInput) => void;
   updateProfile: (input: Partial<UserProfile>) => void;
-  setLearningSurah: (surahNumber: number) => void;
+  /**
+   * Promotes a surah to `learning`. Up to `maxLearningSurahs` can be active at
+   * once (1 for free, 3 with Premium); beyond that the least recently touched
+   * one steps aside.
+   */
+  setLearningSurah: (surahNumber: number, maxLearningSurahs?: number) => void;
   markSurahKnown: (surahNumber: number) => void;
   markSurahForgotten: (surahNumber: number) => void;
   addToLearningQueue: (surahNumber: number) => void;
@@ -229,25 +232,47 @@ export const useQuranStore = create<QuranState>()(
           syncMeta: changedNow(state.syncMeta),
         })),
 
-      setLearningSurah: (surahNumber) =>
+      setLearningSurah: (surahNumber, maxLearningSurahs = 1) =>
         set((state) => {
           const next = { ...state.progress };
-          const updatedAt = new Date().toISOString();
-          Object.values(next).forEach((item) => {
-            if (item.status === 'learning') {
-              next[item.surahNumber] = {
-                ...item,
-                status: 'locked',
-                updatedAt,
-              };
-            }
+          const limit = Math.max(1, maxLearningSurahs);
+
+          // Keep the most recently activated surahs, up to the tier's limit; the
+          // oldest step aside. That makes a free user's single slot behave like
+          // "switch surah", while a premium user simply fills their three slots.
+          const active = Object.values(next)
+            .filter(
+              (item) => item.status === 'learning' && item.surahNumber !== surahNumber,
+            )
+            .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+
+          // `updatedAt` doubles as the activation order, so it has to be strictly
+          // increasing: two activations within the same millisecond would
+          // otherwise make "the oldest" arbitrary, and evict the wrong surah.
+          const latest = active.reduce(
+            (max, item) => Math.max(max, Date.parse(item.updatedAt ?? '') || 0),
+            0,
+          );
+          const updatedAt = new Date(Math.max(Date.now(), latest + 1)).toISOString();
+
+          active.slice(limit - 1).forEach((item) => {
+            next[item.surahNumber] = { ...item, status: 'locked', updatedAt };
           });
+
           const existing = next[surahNumber];
           next[surahNumber] = existing
             ? { ...existing, status: 'learning', updatedAt }
             : makeProgress(surahNumber, 'learning', updatedAt);
           return {
             progress: next,
+            // It is now the active surah, so it has no business still queueing
+            // behind itself.
+            profile: {
+              ...state.profile,
+              learningQueue: state.profile.learningQueue.filter(
+                (number) => number !== surahNumber,
+              ),
+            },
             syncMeta: changedNow(state.syncMeta),
           };
         }),
@@ -288,6 +313,10 @@ export const useQuranStore = create<QuranState>()(
       addToLearningQueue: (surahNumber) =>
         set((state) => {
           if (state.profile.learningQueue.includes(surahNumber)) return state;
+          // Queueing the surah currently being learnt, or one already memorised,
+          // only creates a queue entry that can never be promoted.
+          const status = state.progress[surahNumber]?.status;
+          if (status === 'learning' || status === 'known') return state;
           return {
             profile: {
               ...state.profile,
@@ -337,31 +366,26 @@ export const useQuranStore = create<QuranState>()(
         const state = get();
         if (state.activeSession?.date === dateKey()) return;
 
-        const allowedSurahs = access?.allowedSurahNumbers
-          ? new Set(access.allowedSurahNumbers)
-          : undefined;
+        // Every surah is reviewable on every tier: the only bound is the user's
+        // own daily goal.
         const known = Object.values(state.progress).filter(
-          (item) =>
-            item.status === 'known' &&
-            (!allowedSurahs || allowedSurahs.has(item.surahNumber)),
+          (item) => item.status === 'known',
         );
         const due = sortByReviewPriority(known.filter((item) => isDue(item)));
         const notDue = sortByReviewPriority(known.filter((item) => !isDue(item)));
         const reviewCandidates = access?.isBonus ? [...due, ...notDue] : due;
         const reviewQueue = reviewCandidates
-          .slice(
-            0,
-            Math.min(
-              state.profile.dailyGoalReviews,
-              access?.maxReviews ?? state.profile.dailyGoalReviews,
-            ),
-          )
+          .slice(0, state.profile.dailyGoalReviews)
           .map((item) => item.surahNumber);
-        const learning = Object.values(state.progress).find(
-          (item) =>
-            item.status === 'learning' &&
-            (!allowedSurahs || allowedSurahs.has(item.surahNumber)),
-        );
+
+        // With several surahs active, the session works on the one the user
+        // picked; otherwise on the only (or most recently touched) one.
+        const activeLearning = Object.values(state.progress)
+          .filter((item) => item.status === 'learning')
+          .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+        const learning =
+          activeLearning.find((item) => item.surahNumber === access?.learningSurah) ??
+          activeLearning[0];
         const availableVerses = getVerses(learning?.surahNumber);
         const verseStart = learning?.versesLearned ?? 0;
         const versesTarget = Math.max(
@@ -440,15 +464,28 @@ export const useQuranStore = create<QuranState>()(
 
           // When the active surah is just completed, auto-promote the next queued
           // surah to 'learning' so the user never lands on an empty session plan.
+          //
+          // The queue can legitimately contain the surah being learnt (the user
+          // queued it, then also tapped "apprendre") or one already known. Both
+          // must be dropped rather than promoted: promoting the surah we have
+          // just finished flipped it straight back to 'learning' with
+          // versesLearned === totalVerses, leaving it pinned at 100% forever and
+          // never advancing to the next one.
           let nextQueue = state.profile.learningQueue;
-          if (completedNow && nextQueue.length > 0) {
-            const [promoted, ...rest] = nextQueue;
+          if (completedNow) {
+            const promotable = nextQueue.filter(
+              (number) =>
+                number !== surahNumber && nextProgress[number]?.status !== 'known',
+            );
+            const [promoted, ...rest] = promotable;
             nextQueue = rest;
-            nextProgress[promoted] = {
-              ...(nextProgress[promoted] ?? makeProgress(promoted, 'learning', updatedAt)),
-              status: 'learning',
-              updatedAt,
-            };
+            if (promoted !== undefined) {
+              nextProgress[promoted] = {
+                ...(nextProgress[promoted] ?? makeProgress(promoted, 'learning', updatedAt)),
+                status: 'learning',
+                updatedAt,
+              };
+            }
           }
 
           return {
@@ -586,12 +623,18 @@ export const useQuranStore = create<QuranState>()(
 
       clearActiveSession: () => set({ activeSession: undefined }),
 
-      applyCloudSnapshot: (snapshot, syncedAt, cloudUserId) =>
+      applyCloudSnapshot: (snapshot, syncedAt, cloudUserId) => {
+        // The snapshot can carry the stuck-at-100% state from a device that has
+        // not been updated yet, so it is healed on the way in too.
+        const healed = healLearningState({
+          progress: snapshot.progress,
+          profile: normalizeProfile(snapshot.profile),
+        });
         set({
           onboardingCompleted: snapshot.onboardingCompleted,
           onboardingAccountPending: false,
-          profile: normalizeProfile(snapshot.profile),
-          progress: snapshot.progress,
+          profile: healed.profile,
+          progress: healed.progress,
           stats: normalizeStats(snapshot.stats, snapshot.stats.freezeAllowance ?? 1),
           history: snapshot.history.map(normalizeSessionRecord),
           syncMeta: {
@@ -600,7 +643,8 @@ export const useQuranStore = create<QuranState>()(
             lastLocalChangeAt: snapshot.updatedAt,
             lastSyncedAt: syncedAt,
           },
-        }),
+        });
+      },
 
       resetForCloudUser: (cloudUserId) =>
         set({
@@ -634,15 +678,22 @@ export const useQuranStore = create<QuranState>()(
     {
       name: 'quran-daily-state',
       storage: createJSONStorage(() => AsyncStorage),
-      version: 5,
-      migrate: (persistedState, version) => {
+      // v6 heals learning state a queued-and-active surah could corrupt: it
+      // promoted itself on completion and stayed pinned at 100%.
+      version: 6,
+      migrate: (persistedState, _version) => {
         const state = persistedState as Partial<QuranState>;
         const now = new Date();
         const migratedHistory = (state.history ?? []).map(normalizeSessionRecord);
+        const healed = healLearningState({
+          progress: state.progress ?? {},
+          profile: normalizeProfile(state.profile),
+        });
         return {
           ...state,
           onboardingAccountPending: state.onboardingAccountPending ?? false,
-          profile: normalizeProfile(state.profile),
+          profile: healed.profile,
+          progress: healed.progress,
           stats: normalizeStats(state.stats, state.stats?.freezeAllowance ?? 1, now),
           history: migratedHistory,
           syncMeta: state.syncMeta ?? defaultSyncMeta,
@@ -659,5 +710,11 @@ export const useQuranStore = create<QuranState>()(
 export const selectKnownCount = (state: QuranState) =>
   Object.values(state.progress).filter((item) => item.status === 'known').length;
 
+/** Most recently touched first, so `[0]` is the surah a session defaults to. */
+export const selectLearningSurahs = (state: QuranState) =>
+  Object.values(state.progress)
+    .filter((item) => item.status === 'learning')
+    .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+
 export const selectLearningProgress = (state: QuranState) =>
-  Object.values(state.progress).find((item) => item.status === 'learning');
+  selectLearningSurahs(state)[0];
