@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
@@ -9,6 +9,7 @@ import {
   Check,
   Ear,
   Play,
+  Plus,
   Repeat,
   Sparkles,
   Target,
@@ -23,38 +24,52 @@ import { getSurah } from '@/data/surahs';
 import { getVerses } from '@/data/verses';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { useTheme } from '@/providers/ThemeProvider';
-import { isFreeSurah } from '@/services/subscription';
 import {
+  capabilities,
   hasFullAccess as computeFullAccess,
+  PREMIUM_MAX_LEARNING_SURAHS,
   sessionAccess,
 } from '@/utils/access';
-import { selectLearningProgress, useQuranStore } from '@/store/useQuranStore';
+import { useQuranStore } from '@/store/useQuranStore';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 
 export default function LearnScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const learning = useQuranStore(selectLearningProgress);
+  const progressMap = useQuranStore((state) => state.progress);
   const profile = useQuranStore((state) => state.profile);
   const startDailySession = useQuranStore((state) => state.startDailySession);
   const removeFromLearningQueue = useQuranStore((state) => state.removeFromLearningQueue);
   const reorderLearningQueue = useQuranStore((state) => state.reorderLearningQueue);
   const { configured, isPremium } = useSubscription();
   const hasFullAccess = computeFullAccess(configured, isPremium);
+  const access = capabilities(hasFullAccess);
+
+  // Derived with useMemo rather than a store selector: the selector rebuilds the
+  // array on every call, which would give useSyncExternalStore a new snapshot
+  // each render and loop.
+  const active = useMemo(
+    () =>
+      Object.values(progressMap)
+        .filter((item) => item.status === 'learning')
+        .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')),
+    [progressMap],
+  );
+
+  const [selectedSurah, setSelectedSurah] = useState<number>();
+  const learning =
+    active.find((item) => item.surahNumber === selectedSurah) ?? active[0];
+  const canAddSurah = active.length < access.maxLearningSurahs;
+
   const surah = getSurah(learning?.surahNumber);
   const verses = getVerses(learning?.surahNumber);
   const nextVerse = verses[learning?.versesLearned ?? 0];
   const progress = learning ? learning.versesLearned / learning.totalVerses : 0;
-  const premiumLocked = Boolean(
-    surah && !hasFullAccess && !isFreeSurah(surah.number),
-  );
 
   function start() {
-    if (surah && premiumLocked) {
-      router.push(`/subscription?surah=${surah.number}` as never);
-      return;
-    }
-    startDailySession(sessionAccess(hasFullAccess));
+    startDailySession(
+      sessionAccess(hasFullAccess, false, learning?.surahNumber),
+    );
     const session = useQuranStore.getState().activeSession;
     router.push(session?.reviewQueue.length ? '/session/review' : '/session/learn');
   }
@@ -81,6 +96,42 @@ export default function LearnScreen() {
         title="Apprendre"
         subtitle="Un verset après l’autre, avec calme et répétition."
       />
+
+      {active.length > 1 ? (
+        <View style={styles.activeSurahs}>
+          {active.map((item) => {
+            const itemSurah = getSurah(item.surahNumber);
+            if (!itemSurah) return null;
+            const isSelected = item.surahNumber === learning.surahNumber;
+            return (
+              <Pressable
+                accessibilityLabel={`Travailler ${itemSurah.nameTranslit}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isSelected }}
+                key={item.surahNumber}
+                onPress={() => setSelectedSurah(item.surahNumber)}
+                style={[
+                  styles.activeSurah,
+                  isSelected && styles.activeSurahSelected,
+                ]}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.activeSurahName,
+                    isSelected && styles.activeSurahNameSelected,
+                  ]}
+                >
+                  {itemSurah.nameTranslit}
+                </Text>
+                <Text style={styles.activeSurahMeta}>
+                  {Math.round((item.versesLearned / item.totalVerses) * 100)}%
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
 
       <OrnamentalCard contentStyle={styles.hero}>
         <View style={styles.heroTop}>
@@ -120,12 +171,39 @@ export default function LearnScreen() {
             </Text>
           </View>
         </View>
-        <PrimaryButton
-          icon={premiumLocked ? Sparkles : Play}
-          label={premiumLocked ? 'Débloquer cette sourate' : 'Lancer ma session'}
-          onPress={start}
-        />
+        <PrimaryButton icon={Play} label="Lancer ma session" onPress={start} />
       </OrnamentalCard>
+
+      {canAddSurah ? (
+        <Card style={styles.addSurah}>
+          <Text style={styles.addSurahText}>
+            Tu peux apprendre {access.maxLearningSurahs - active.length} sourate
+            {access.maxLearningSurahs - active.length > 1 ? 's' : ''} de plus en
+            parallèle.
+          </Text>
+          <PrimaryButton
+            compact
+            icon={Plus}
+            label="Ajouter une sourate"
+            onPress={() => router.push('/library')}
+            variant="ghost"
+          />
+        </Card>
+      ) : !hasFullAccess ? (
+        <Card style={styles.addSurah}>
+          <Text style={styles.addSurahText}>
+            Avec Premium, apprends jusqu’à {PREMIUM_MAX_LEARNING_SURAHS} sourates
+            en parallèle.
+          </Text>
+          <PrimaryButton
+            compact
+            icon={Sparkles}
+            label="Découvrir Premium"
+            onPress={() => router.push('/subscription')}
+            variant="ghost"
+          />
+        </Card>
+      ) : null}
 
       {nextVerse ? (
         <>
@@ -238,6 +316,49 @@ export default function LearnScreen() {
 
 function createStyles(colors: Palette) {
   return StyleSheet.create({
+  activeSurahs: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  activeSurah: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flex: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  activeSurahSelected: {
+    backgroundColor: withAlpha(colors.gold, 0.13),
+    borderColor: colors.gold,
+  },
+  activeSurahName: {
+    color: colors.textMuted,
+    fontFamily: typography.bold,
+    fontSize: 13,
+  },
+  activeSurahNameSelected: {
+    color: colors.text,
+  },
+  activeSurahMeta: {
+    color: colors.textFaint,
+    fontFamily: typography.regular,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  addSurah: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  addSurahText: {
+    color: colors.textMuted,
+    fontFamily: typography.regular,
+    fontSize: 13,
+    textAlign: 'center',
+  },
   switchSurahLink: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -372,7 +493,7 @@ function createStyles(colors: Palette) {
   },
   goalItem: {
     alignItems: 'center',
-    backgroundColor: withAlpha(colors.white, 0.05),
+    backgroundColor: withAlpha(colors.ink, 0.05),
     borderRadius: radius.md,
     flex: 1,
     flexDirection: 'row',

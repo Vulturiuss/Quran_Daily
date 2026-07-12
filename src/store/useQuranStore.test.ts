@@ -8,7 +8,7 @@ import '@/testing/storageStub';
 import { createDefaultStats } from '@/utils/gamification';
 import { addDays, dateKey } from '@/utils/date';
 
-import { useQuranStore } from './useQuranStore';
+import { selectLearningSurahs, useQuranStore } from './useQuranStore';
 
 const YESTERDAY = dateKey(addDays(new Date(), -1));
 
@@ -91,6 +91,58 @@ test('a surah already known is skipped when promoting from the queue', () => {
 
   assert.equal(state.progress[113].status, 'known', '113 stays known');
   assert.equal(state.progress[114]?.status, 'learning', '114 is promoted instead');
+});
+
+test('a free user learns one surah at a time: a new pick replaces the old', () => {
+  reset();
+  useQuranStore.getState().setLearningSurah(112, 1);
+  useQuranStore.getState().setLearningSurah(113, 1);
+
+  const { progress } = useQuranStore.getState();
+  assert.equal(progress[113].status, 'learning');
+  assert.equal(progress[112].status, 'locked', 'the previous one steps aside');
+});
+
+test('a premium user learns up to three surahs in parallel', () => {
+  reset();
+  useQuranStore.getState().setLearningSurah(112, 3);
+  useQuranStore.getState().setLearningSurah(113, 3);
+  useQuranStore.getState().setLearningSurah(114, 3);
+
+  const active = selectLearningSurahs(useQuranStore.getState());
+  assert.deepEqual(
+    active.map((item) => item.surahNumber).sort(),
+    [112, 113, 114],
+    'all three stay active',
+  );
+});
+
+test('a fourth surah pushes out the least recently touched one', () => {
+  reset();
+  [112, 113, 114].forEach((number) =>
+    useQuranStore.getState().setLearningSurah(number, 3),
+  );
+  useQuranStore.getState().setLearningSurah(103, 3);
+
+  const state = useQuranStore.getState();
+  const active = selectLearningSurahs(state).map((item) => item.surahNumber);
+  assert.equal(active.length, 3, 'still capped at three');
+  assert.ok(active.includes(103), 'the new one is active');
+  assert.equal(state.progress[112].status, 'locked', 'the oldest stepped aside');
+});
+
+test('the session works on the chosen surah among those learnt in parallel', () => {
+  reset();
+  useQuranStore.getState().setLearningSurah(112, 3);
+  useQuranStore.getState().setLearningSurah(113, 3);
+
+  useQuranStore.getState().startDailySession({ learningSurah: 112 });
+
+  assert.equal(
+    useQuranStore.getState().activeSession?.learningSurah,
+    112,
+    'not simply the most recent one',
+  );
 });
 
 test('picking a surah to learn removes it from the queue', () => {

@@ -101,12 +101,9 @@ interface OnboardingInput {
   notificationsEnabled: boolean;
 }
 
-interface SessionAccess {
-  maxReviews?: number;
-  allowedSurahNumbers?: readonly number[];
-  isBonus?: boolean;
-  freezeAllowance?: number;
-}
+// No surah is gated any more, so a session is only parameterised by which of the
+// active learning surahs it works on. See src/utils/access.ts.
+import type { SessionAccess } from '@/utils/access';
 
 export interface QuranState {
   hydrated: boolean;
@@ -124,7 +121,12 @@ export interface QuranState {
   refreshGamification: (freezeAllowance: number) => void;
   completeOnboarding: (input: OnboardingInput) => void;
   updateProfile: (input: Partial<UserProfile>) => void;
-  setLearningSurah: (surahNumber: number) => void;
+  /**
+   * Promotes a surah to `learning`. Up to `maxLearningSurahs` can be active at
+   * once (1 for free, 3 with Premium); beyond that the least recently touched
+   * one steps aside.
+   */
+  setLearningSurah: (surahNumber: number, maxLearningSurahs?: number) => void;
   markSurahKnown: (surahNumber: number) => void;
   markSurahForgotten: (surahNumber: number) => void;
   addToLearningQueue: (surahNumber: number) => void;
@@ -230,19 +232,33 @@ export const useQuranStore = create<QuranState>()(
           syncMeta: changedNow(state.syncMeta),
         })),
 
-      setLearningSurah: (surahNumber) =>
+      setLearningSurah: (surahNumber, maxLearningSurahs = 1) =>
         set((state) => {
           const next = { ...state.progress };
-          const updatedAt = new Date().toISOString();
-          Object.values(next).forEach((item) => {
-            if (item.status === 'learning') {
-              next[item.surahNumber] = {
-                ...item,
-                status: 'locked',
-                updatedAt,
-              };
-            }
+          const limit = Math.max(1, maxLearningSurahs);
+
+          // Keep the most recently activated surahs, up to the tier's limit; the
+          // oldest step aside. That makes a free user's single slot behave like
+          // "switch surah", while a premium user simply fills their three slots.
+          const active = Object.values(next)
+            .filter(
+              (item) => item.status === 'learning' && item.surahNumber !== surahNumber,
+            )
+            .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+
+          // `updatedAt` doubles as the activation order, so it has to be strictly
+          // increasing: two activations within the same millisecond would
+          // otherwise make "the oldest" arbitrary, and evict the wrong surah.
+          const latest = active.reduce(
+            (max, item) => Math.max(max, Date.parse(item.updatedAt ?? '') || 0),
+            0,
+          );
+          const updatedAt = new Date(Math.max(Date.now(), latest + 1)).toISOString();
+
+          active.slice(limit - 1).forEach((item) => {
+            next[item.surahNumber] = { ...item, status: 'locked', updatedAt };
           });
+
           const existing = next[surahNumber];
           next[surahNumber] = existing
             ? { ...existing, status: 'learning', updatedAt }
@@ -350,31 +366,26 @@ export const useQuranStore = create<QuranState>()(
         const state = get();
         if (state.activeSession?.date === dateKey()) return;
 
-        const allowedSurahs = access?.allowedSurahNumbers
-          ? new Set(access.allowedSurahNumbers)
-          : undefined;
+        // Every surah is reviewable on every tier: the only bound is the user's
+        // own daily goal.
         const known = Object.values(state.progress).filter(
-          (item) =>
-            item.status === 'known' &&
-            (!allowedSurahs || allowedSurahs.has(item.surahNumber)),
+          (item) => item.status === 'known',
         );
         const due = sortByReviewPriority(known.filter((item) => isDue(item)));
         const notDue = sortByReviewPriority(known.filter((item) => !isDue(item)));
         const reviewCandidates = access?.isBonus ? [...due, ...notDue] : due;
         const reviewQueue = reviewCandidates
-          .slice(
-            0,
-            Math.min(
-              state.profile.dailyGoalReviews,
-              access?.maxReviews ?? state.profile.dailyGoalReviews,
-            ),
-          )
+          .slice(0, state.profile.dailyGoalReviews)
           .map((item) => item.surahNumber);
-        const learning = Object.values(state.progress).find(
-          (item) =>
-            item.status === 'learning' &&
-            (!allowedSurahs || allowedSurahs.has(item.surahNumber)),
-        );
+
+        // With several surahs active, the session works on the one the user
+        // picked; otherwise on the only (or most recently touched) one.
+        const activeLearning = Object.values(state.progress)
+          .filter((item) => item.status === 'learning')
+          .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+        const learning =
+          activeLearning.find((item) => item.surahNumber === access?.learningSurah) ??
+          activeLearning[0];
         const availableVerses = getVerses(learning?.surahNumber);
         const verseStart = learning?.versesLearned ?? 0;
         const versesTarget = Math.max(
@@ -699,5 +710,11 @@ export const useQuranStore = create<QuranState>()(
 export const selectKnownCount = (state: QuranState) =>
   Object.values(state.progress).filter((item) => item.status === 'known').length;
 
+/** Most recently touched first, so `[0]` is the surah a session defaults to. */
+export const selectLearningSurahs = (state: QuranState) =>
+  Object.values(state.progress)
+    .filter((item) => item.status === 'learning')
+    .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+
 export const selectLearningProgress = (state: QuranState) =>
-  Object.values(state.progress).find((item) => item.status === 'learning');
+  selectLearningSurahs(state)[0];

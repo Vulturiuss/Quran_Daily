@@ -150,7 +150,7 @@ export function ProgressRing({
           cy={size / 2}
           fill="none"
           r={radiusValue}
-          stroke={withAlpha(colors.white, 0.08)}
+          stroke={withAlpha(colors.ink, 0.08)}
           strokeWidth={strokeWidth}
         />
         <Circle

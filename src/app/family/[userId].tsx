@@ -319,7 +319,7 @@ function createStyles(colors: Palette) {
   },
   todayIcon: {
     alignItems: 'center',
-    backgroundColor: withAlpha(colors.white, 0.06),
+    backgroundColor: withAlpha(colors.ink, 0.06),
     borderRadius: radius.md,
     height: 46,
     justifyContent: 'center',
@@ -417,7 +417,7 @@ function createStyles(colors: Palette) {
     height: 17,
   },
   barTrack: {
-    backgroundColor: withAlpha(colors.white, 0.05),
+    backgroundColor: withAlpha(colors.ink, 0.05),
     borderRadius: radius.pill,
     height: 105,
     justifyContent: 'flex-end',

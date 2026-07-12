@@ -166,7 +166,7 @@ function createStyles(colors: Palette) {
   },
   stats: {
     alignItems: 'center',
-    backgroundColor: withAlpha(colors.white, 0.055),
+    backgroundColor: withAlpha(colors.ink, 0.055),
     borderRadius: radius.md,
     flexDirection: 'row',
     paddingVertical: spacing.md,
