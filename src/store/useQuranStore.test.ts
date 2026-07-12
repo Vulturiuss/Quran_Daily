@@ -24,6 +24,87 @@ function reset() {
   });
 }
 
+function learningState(surahNumber: number, totalVerses: number, learningQueue: number[]) {
+  reset();
+  useQuranStore.setState({
+    profile: { ...useQuranStore.getState().profile, learningQueue, dailyGoalVerses: 10 },
+    progress: {
+      [surahNumber]: {
+        surahNumber,
+        status: 'learning',
+        versesLearned: totalVerses - 1,
+        totalVerses,
+        reviewIntervalDays: 1,
+        easeFactor: 2.5,
+        reviewCount: 0,
+      },
+    },
+    activeSession: {
+      date: dateKey(),
+      startedAt: new Date().toISOString(),
+      reviewQueue: [],
+      reviewIndex: 0,
+      ratings: [],
+      learningSurah: surahNumber,
+      verseStart: totalVerses - 1,
+      versesTarget: 1,
+      versesLearned: 0,
+    },
+  });
+}
+
+test('finishing a surah that is also queued does not re-promote itself', () => {
+  // Surah 112 is the active learning surah AND sits in the queue (the user added
+  // it to the queue, then also tapped "apprendre"). Promoting the head of the
+  // queue used to overwrite the just-completed surah back to `learning` with
+  // versesLearned === totalVerses: stuck at 100%, never advancing.
+  learningState(112, 4, [112, 113]);
+
+  useQuranStore.getState().learnCurrentVerse();
+  const state = useQuranStore.getState();
+
+  assert.equal(state.progress[112].status, 'known', '112 is finished, not learning');
+  assert.equal(state.progress[113]?.status, 'learning', '113 takes over');
+  assert.deepEqual(state.profile.learningQueue, [], 'both leave the queue');
+});
+
+test('a surah already known is skipped when promoting from the queue', () => {
+  learningState(112, 4, [113]);
+  useQuranStore.setState((current) => ({
+    progress: {
+      ...current.progress,
+      113: {
+        surahNumber: 113,
+        status: 'known',
+        versesLearned: 5,
+        totalVerses: 5,
+        reviewIntervalDays: 3,
+        easeFactor: 2.5,
+        reviewCount: 1,
+      },
+    },
+    profile: { ...current.profile, learningQueue: [113, 114] },
+  }));
+
+  useQuranStore.getState().learnCurrentVerse();
+  const state = useQuranStore.getState();
+
+  assert.equal(state.progress[113].status, 'known', '113 stays known');
+  assert.equal(state.progress[114]?.status, 'learning', '114 is promoted instead');
+});
+
+test('picking a surah to learn removes it from the queue', () => {
+  reset();
+  useQuranStore.setState((current) => ({
+    profile: { ...current.profile, learningQueue: [113, 114] },
+  }));
+
+  useQuranStore.getState().setLearningSurah(113);
+
+  assert.deepEqual(useQuranStore.getState().profile.learningQueue, [114]);
+  assert.equal(useQuranStore.getState().progress[113].status, 'learning');
+});
+
 test('a session with nothing reviewed and nothing learned earns no credit', () => {
   reset();
   // No known surahs and no learning surah: the plan is empty.
