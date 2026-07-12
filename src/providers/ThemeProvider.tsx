@@ -1,9 +1,9 @@
 import { createContext, ReactNode, useContext, useMemo } from 'react';
 
-import { useSubscription } from '@/providers/SubscriptionProvider';
+import { useAccess } from '@/hooks/useAccess';
 import { getPalette, Palette, ThemeId } from '@/theme';
 import { useQuranStore } from '@/store/useQuranStore';
-import { capabilities, effectiveTheme, hasFullAccess } from '@/utils/access';
+import { effectiveTheme } from '@/utils/access';
 
 interface ThemeContextValue {
   theme: ThemeId;
@@ -16,14 +16,14 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const preferred = useQuranStore((state) => state.profile.theme);
-  const { configured, isPremium } = useSubscription();
-  const canChangeTheme = capabilities(
-    hasFullAccess(configured, isPremium),
-  ).allThemes;
+  const { allThemes: canChangeTheme, resolved } = useAccess();
 
-  // The chosen theme is kept in the profile even without Premium, so it comes
-  // back as soon as the user subscribes — it is simply not rendered until then.
-  const theme = effectiveTheme(canChangeTheme, preferred);
+  // Render optimistically while the subscription resolves: applying the free
+  // palette first would repaint the whole app — the navigator background
+  // included — and then flip back, so a subscriber sees their theme flash to the
+  // default on every launch. A free user's profile still holds the default here,
+  // because the picker sends them to the paywall instead of storing a choice.
+  const theme = effectiveTheme(canChangeTheme || !resolved, preferred);
 
   const value = useMemo<ThemeContextValue>(
     () => ({ theme, colors: getPalette(theme), canChangeTheme }),

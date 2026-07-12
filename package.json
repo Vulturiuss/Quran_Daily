@@ -16,7 +16,7 @@
     "e2e:maestro": "maestro test e2e/maestro",
     "sync:quran": "node scripts/sync-quran-data.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "tsx --test \"src/**/*.test.ts\"",
     "lint": "eslint .",
     "check:env": "node scripts/check-env.mjs",
     "eas-build-pre-install": "node scripts/check-env.mjs",

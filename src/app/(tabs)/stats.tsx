@@ -26,14 +26,10 @@ import {
   SectionHeader,
 } from '@/components/ui';
 import { badgeById, badges } from '@/data/badges';
-import { useSubscription } from '@/providers/SubscriptionProvider';
+import { useAccess } from '@/hooks/useAccess';
 import { useTheme } from '@/providers/ThemeProvider';
 import { selectKnownCount, useQuranStore } from '@/store/useQuranStore';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
-import {
-  capabilities,
-  hasFullAccess as computeFullAccess,
-} from '@/utils/access';
 import { getLevelProgress } from '@/utils/gamification';
 import {
   ActivityRange,
@@ -49,12 +45,12 @@ export default function StatsScreen() {
   const history = useQuranStore((state) => state.history);
   const progress = useQuranStore((state) => state.progress);
   const knownCount = useQuranStore(selectKnownCount);
-  const { configured, isPremium } = useSubscription();
+  const access = useAccess();
   // The Progress tab is a Premium feature; the streak and the headline counters
   // stay visible for free, since they are what makes the user come back.
-  const canSeeStats = capabilities(
-    computeFullAccess(configured, isPremium),
-  ).stats;
+  // Render optimistically until the tier resolves, or a subscriber is shown the
+  // "unlock your statistics" paywall for a beat on every visit.
+  const canSeeStats = access.stats || !access.resolved;
   const level = getLevelProgress(stats.totalXP);
   const totalVersesLearned = Object.values(progress).reduce(
     (total, item) => total + item.versesLearned,

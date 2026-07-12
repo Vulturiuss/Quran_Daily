@@ -82,6 +82,14 @@ create table if not exists public.user_badges (
   unique (user_id, badge_id)
 );
 
+-- The payload is written freely by the client (it is the user's own progress),
+-- so it is bounded: a member could otherwise store megabytes of jsonb, which the
+-- family dashboard then walks on every read.
+--
+-- NOTE: the family dashboard derives every figure a parent sees from this
+-- payload, so those figures are DECLARATIVE — a child can edit their own row.
+-- Making them trustworthy means deriving them server-side from daily_sessions /
+-- streaks / user_xp, which exist but are not read today.
 create table if not exists public.user_state_snapshots (
   user_id uuid primary key references auth.users(id) on delete cascade,
   payload jsonb not null default '{}'::jsonb
@@ -89,6 +97,12 @@ create table if not exists public.user_state_snapshots (
   revision bigint not null default 0 check (revision >= 0),
   updated_at timestamptz not null default now()
 );
+
+alter table public.user_state_snapshots
+  drop constraint if exists user_state_snapshots_payload_size;
+alter table public.user_state_snapshots
+  add constraint user_state_snapshots_payload_size
+  check (pg_column_size(payload) <= 1048576);
 
 create table if not exists public.families (
   id uuid primary key default gen_random_uuid(),
@@ -620,6 +634,27 @@ begin
     raise exception 'Le propriétaire de l’abonnement ne peut pas être retiré.';
   end if;
 
+  -- Only the owner may remove another parent. Without this, any promoted parent
+  -- could evict the other parents (and rotate the invite code behind them) —
+  -- the `parent` role would be far more powerful than its name suggests.
+  if
+    exists (
+      select 1
+      from public.family_members member
+      where member.family_id = parent_family_id
+        and member.user_id = member_user_id
+        and member.role = 'parent'
+    )
+    and not exists (
+      select 1
+      from public.families family
+      where family.id = parent_family_id
+        and family.owner_id = auth.uid()
+    )
+  then
+    raise exception 'Seul le propriétaire de l’abonnement peut retirer un parent.';
+  end if;
+
   delete from public.family_members
   where family_id = parent_family_id
     and user_id = member_user_id
@@ -786,7 +821,14 @@ begin
           where progress_item.value ->> 'status' = 'learning'
           limit 1
         ),
-        'history', coalesce(snapshot.payload -> 'history', '[]'::jsonb),
+        -- The dashboard exists so parents can follow their children. Another
+        -- parent's day-by-day history is none of their business, so it is only
+        -- returned for children and for the caller themselves.
+        'history', case
+          when member.role = 'child' or member.user_id = auth.uid()
+            then coalesce(snapshot.payload -> 'history', '[]'::jsonb)
+          else '[]'::jsonb
+        end,
         'todayCompleted', coalesce((
           select count(*) > 0
           from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item

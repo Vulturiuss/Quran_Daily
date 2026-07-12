@@ -22,11 +22,9 @@ import { VerseCard } from '@/components/VerseCard';
 import { Card, Eyebrow, PrimaryButton, ProgressBar, ScreenTitle, SectionHeader } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
 import { getVerses } from '@/data/verses';
-import { useSubscription } from '@/providers/SubscriptionProvider';
+import { useAccess } from '@/hooks/useAccess';
 import { useTheme } from '@/providers/ThemeProvider';
 import {
-  capabilities,
-  hasFullAccess as computeFullAccess,
   PREMIUM_MAX_LEARNING_SURAHS,
   sessionAccess,
 } from '@/utils/access';
@@ -41,9 +39,7 @@ export default function LearnScreen() {
   const startDailySession = useQuranStore((state) => state.startDailySession);
   const removeFromLearningQueue = useQuranStore((state) => state.removeFromLearningQueue);
   const reorderLearningQueue = useQuranStore((state) => state.reorderLearningQueue);
-  const { configured, isPremium } = useSubscription();
-  const hasFullAccess = computeFullAccess(configured, isPremium);
-  const access = capabilities(hasFullAccess);
+  const access = useAccess();
 
   // Derived with useMemo rather than a store selector: the selector rebuilds the
   // array on every call, which would give useSyncExternalStore a new snapshot
@@ -67,8 +63,11 @@ export default function LearnScreen() {
   const progress = learning ? learning.versesLearned / learning.totalVerses : 0;
 
   function start() {
+    // Never write on unresolved capabilities: the free freeze allowance would be
+    // stamped into the session and clamp a subscriber's freezes for the month.
+    if (!access.resolved) return;
     startDailySession(
-      sessionAccess(hasFullAccess, false, learning?.surahNumber),
+      sessionAccess(access.hasFullAccess, false, learning?.surahNumber),
     );
     const session = useQuranStore.getState().activeSession;
     router.push(session?.reviewQueue.length ? '/session/review' : '/session/learn');
@@ -171,10 +170,15 @@ export default function LearnScreen() {
             </Text>
           </View>
         </View>
-        <PrimaryButton icon={Play} label="Lancer ma session" onPress={start} />
+        <PrimaryButton
+          icon={Play}
+          label="Lancer ma session"
+          loading={!access.resolved}
+          onPress={start}
+        />
       </OrnamentalCard>
 
-      {canAddSurah ? (
+      {!access.resolved ? null : canAddSurah ? (
         <Card style={styles.addSurah}>
           <Text style={styles.addSurahText}>
             Tu peux apprendre {access.maxLearningSurahs - active.length} sourate
@@ -189,7 +193,7 @@ export default function LearnScreen() {
             variant="ghost"
           />
         </Card>
-      ) : !hasFullAccess ? (
+      ) : !access.hasFullAccess ? (
         <Card style={styles.addSurah}>
           <Text style={styles.addSurahText}>
             Avec Premium, apprends jusqu’à {PREMIUM_MAX_LEARNING_SURAHS} sourates

@@ -145,6 +145,86 @@ test('the session works on the chosen surah among those learnt in parallel', () 
   );
 });
 
+test('losing Premium brings the parallel surahs back down to one', () => {
+  reset();
+  [112, 113, 114].forEach((number) =>
+    useQuranStore.getState().setLearningSurah(number, 3),
+  );
+
+  useQuranStore.getState().enforceLearningLimit(1);
+
+  const state = useQuranStore.getState();
+  const active = selectLearningSurahs(state).map((item) => item.surahNumber);
+  assert.deepEqual(active, [114], 'only the most recent stays active');
+  assert.equal(state.progress[112].status, 'locked');
+  assert.equal(state.progress[113].status, 'locked');
+});
+
+test('a demoted surah keeps its progress', () => {
+  reset();
+  useQuranStore.getState().setLearningSurah(112, 3);
+  useQuranStore.setState((current) => ({
+    progress: {
+      ...current.progress,
+      112: { ...current.progress[112], versesLearned: 3 },
+    },
+  }));
+  useQuranStore.getState().setLearningSurah(113, 3);
+
+  useQuranStore.getState().enforceLearningLimit(1);
+
+  assert.equal(useQuranStore.getState().progress[112].status, 'locked');
+  assert.equal(
+    useQuranStore.getState().progress[112].versesLearned,
+    3,
+    'the verses already memorised are not lost',
+  );
+});
+
+test('enforcing a limit that is already met changes nothing', () => {
+  reset();
+  useQuranStore.getState().setLearningSurah(112, 3);
+  const before = useQuranStore.getState().progress;
+
+  useQuranStore.getState().enforceLearningLimit(3);
+
+  assert.equal(useQuranStore.getState().progress, before, 'same reference');
+});
+
+test('an untouched session retargets to the surah the user just picked', () => {
+  reset();
+  useQuranStore.getState().setLearningSurah(112, 3);
+  useQuranStore.getState().setLearningSurah(113, 3);
+
+  // Opened on 113 (most recent), not started.
+  useQuranStore.getState().startDailySession();
+  assert.equal(useQuranStore.getState().activeSession?.learningSurah, 113);
+
+  // The user selects 112 in the Apprendre tab and taps start again.
+  useQuranStore.getState().startDailySession({ learningSurah: 112 });
+
+  assert.equal(
+    useQuranStore.getState().activeSession?.learningSurah,
+    112,
+    'the session follows the choice instead of silently staying on 113',
+  );
+});
+
+test('a session already under way is not thrown away by a new start', () => {
+  reset();
+  useQuranStore.getState().setLearningSurah(112, 3);
+  useQuranStore.getState().setLearningSurah(113, 3);
+  useQuranStore.getState().startDailySession({ learningSurah: 113 });
+  useQuranStore.getState().learnCurrentVerse();
+  const learned = useQuranStore.getState().activeSession?.versesLearned;
+
+  useQuranStore.getState().startDailySession({ learningSurah: 112 });
+
+  const session = useQuranStore.getState().activeSession;
+  assert.equal(session?.learningSurah, 113, 'work in progress wins over the switch');
+  assert.equal(session?.versesLearned, learned, 'and its progress is intact');
+});
+
 test('picking a surah to learn removes it from the queue', () => {
   reset();
   useQuranStore.setState((current) => ({

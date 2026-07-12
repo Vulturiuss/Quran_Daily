@@ -32,10 +32,9 @@ import {
   SectionHeader,
 } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
-import { useSubscription } from '@/providers/SubscriptionProvider';
+import { useAccess } from '@/hooks/useAccess';
 import { useTheme } from '@/providers/ThemeProvider';
 import {
-  hasFullAccess as computeFullAccess,
   sessionAccess,
 } from '@/utils/access';
 import {
@@ -58,8 +57,7 @@ export default function HomeScreen() {
   const learningProgress = useQuranStore(selectLearningProgress);
   const startDailySession = useQuranStore((state) => state.startDailySession);
   const progress = useQuranStore((state) => state.progress);
-  const { configured, isPremium } = useSubscription();
-  const hasFullAccess = computeFullAccess(configured, isPremium);
+  const access = useAccess();
   const todayRecord = history.find((record) => record.date === dateKey());
   const completedToday = Boolean(todayRecord);
   const learningSurah = getSurah(learningProgress?.surahNumber);
@@ -93,10 +91,15 @@ export default function HomeScreen() {
     : 0;
 
   function startSession(isBonus = false) {
+    // Never write on unresolved capabilities: the session would be stamped with
+    // the free freeze allowance, which clamps a subscriber's three streak freezes
+    // to one for the rest of the month.
+    if (!access.resolved) return;
+
     // Work on the surah the mission card is actually showing: with several surahs
     // learnt in parallel, that is not necessarily the store's default.
     startDailySession(
-      sessionAccess(hasFullAccess, isBonus, sessionPlan.learningSurah),
+      sessionAccess(access.hasFullAccess, isBonus, sessionPlan.learningSurah),
     );
     const session = useQuranStore.getState().activeSession;
     router.push(session?.reviewQueue.length ? '/session/review' : '/session/learn');
@@ -207,6 +210,7 @@ export default function HomeScreen() {
               <PrimaryButton
                 icon={Play}
                 label="Faire une session bonus"
+                loading={!access.resolved}
                 onPress={() => startSession(true)}
               />
               <PrimaryButton
@@ -220,6 +224,7 @@ export default function HomeScreen() {
             <PrimaryButton
               icon={Play}
               label="Commencer ma session"
+              loading={!access.resolved}
               onPress={() => startSession(false)}
             />
           )}
