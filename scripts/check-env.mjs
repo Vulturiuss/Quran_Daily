@@ -11,7 +11,11 @@
  * `npm run check:env`.
  */
 const PROFILE = process.env.EAS_BUILD_PROFILE;
-const RELEASE_PROFILES = new Set(['production', 'preview']);
+// `production` only: it is what reaches a store. `preview` builds the APK we hand
+// to friends and testers, and it is allowed to ship without a billing key or the
+// legal URLs — it never faces store review, and Supabase alone is enough to keep
+// `configured === true`, so nothing unlocks silently.
+const RELEASE_PROFILES = new Set(['production']);
 
 // Required for the app to have accounts, sync and a paywall at all.
 const REQUIRED = [
