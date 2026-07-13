@@ -22,6 +22,7 @@ import {
   Home,
   Share2,
   ShieldCheck,
+  Sparkles,
   Star,
 } from 'lucide-react-native';
 
@@ -35,6 +36,7 @@ import { useTheme } from '@/providers/ThemeProvider';
 import { useQuranStore } from '@/store/useQuranStore';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { addDays, formatDuration } from '@/utils/date';
+import { surahSolidity } from '@/utils/memorization';
 import { buildSessionPreview } from '@/utils/sessionPlan';
 
 export default function SessionCompleteScreen() {
@@ -42,6 +44,7 @@ export default function SessionCompleteScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const activeSession = useQuranStore((state) => state.activeSession);
   const completeDailySession = useQuranStore((state) => state.completeDailySession);
+  const startVerification = useQuranStore((state) => state.startVerification);
   const summary = useQuranStore((state) => state.lastSummary);
   const stats = useQuranStore((state) => state.stats);
   const profile = useQuranStore((state) => state.profile);
@@ -117,6 +120,23 @@ export default function SessionCompleteScreen() {
 
   const unlocked = summary.unlockedBadgeIds.map((id) => badgeById[id]).filter(Boolean);
   const completedSurah = getSurah(summary.completedSurah);
+  const awaitingSurah = getSurah(summary.awaitingVerification);
+
+  // A final check that left a few verses behind. The screen used to say nothing at
+  // all about it — and silence, after a recitation the user knows did not go
+  // through, reads as failure. It is not one: the surah holds, a couple of seams
+  // do not yet, and those are exactly what tomorrow's session will drill. The word
+  // "échec" never appears, because that is not what happened.
+  const verifiedProgress =
+    summary.verifiedSurah !== undefined ? progress[summary.verifiedSurah] : undefined;
+  const verifiedSurah = getSurah(summary.verifiedSurah);
+  const weakVerses = verifiedProgress?.weakVerses ?? [];
+  const showPartialCheck =
+    summary.completedSurah === undefined &&
+    Boolean(verifiedSurah) &&
+    Boolean(verifiedProgress) &&
+    weakVerses.length > 0;
+  const solidity = verifiedProgress ? Math.round(surahSolidity(verifiedProgress) * 100) : 0;
   const tomorrow = buildSessionPreview(progress, profile, addDays(new Date(), 1));
   const tomorrowSurah = getSurah(tomorrow.learningSurah);
   return (
@@ -168,6 +188,22 @@ export default function SessionCompleteScreen() {
         </Card>
       </View>
 
+      {showPartialCheck && verifiedSurah ? (
+        <Card gradient style={styles.eventCard}>
+          <Sparkles color={colors.gold} size={25} />
+          <View style={styles.badgeCopy}>
+            <Text style={styles.eventTitle}>
+              {verifiedSurah.nameTranslit} tient à {solidity} %.
+            </Text>
+            <Text style={styles.badgeText}>
+              {weakVerses.length} verset{weakVerses.length > 1 ? 's' : ''} à raffermir,
+              on {weakVerses.length > 1 ? 'les' : 'le'} revoit demain. Tout le reste de
+              la sourate est déjà en place.
+            </Text>
+          </View>
+        </Card>
+      ) : null}
+
       {summary.freezeUsed ? (
         <Card style={styles.eventCard}>
           <ShieldCheck color={colors.success} size={24} />
@@ -189,6 +225,29 @@ export default function SessionCompleteScreen() {
               {completedSurah.nameTranslit} rejoint tes sourates connues.
             </Text>
           </View>
+        </Card>
+      ) : awaitingSurah ? (
+        // Every verse has been seen, and that is all. Saying "memorised" here —
+        // which is what this screen used to do — certifies the very thing the
+        // final recitation exists to check.
+        <Card gradient style={styles.eventCard}>
+          <ShieldCheck color={colors.gold} size={25} />
+          <View style={styles.badgeCopy}>
+            <Text style={styles.eventTitle}>Contrôle final débloqué</Text>
+            <Text style={styles.badgeText}>
+              Tu as vu tous les versets de {awaitingSurah.nameTranslit}. Récite-la en
+              entier pour qu’elle rejoigne tes sourates connues.
+            </Text>
+          </View>
+          <PrimaryButton
+            compact
+            label="Réciter"
+            onPress={() => {
+              startVerification(awaitingSurah.number);
+              router.replace('/session/verify');
+            }}
+            variant="surface"
+          />
         </Card>
       ) : null}
 

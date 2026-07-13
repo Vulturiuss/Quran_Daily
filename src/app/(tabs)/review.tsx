@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
   BookOpenCheck,
@@ -25,10 +25,11 @@ import { useTheme } from '@/providers/ThemeProvider';
 import {
   sessionAccess,
 } from '@/utils/access';
-import { useQuranStore } from '@/store/useQuranStore';
+import { sessionHasWork, useQuranStore } from '@/store/useQuranStore';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { UserSurahProgress } from '@/types';
 import { dateKey, dayDifference, formatShortDate } from '@/utils/date';
+import { sessionRoute } from '@/utils/sessionRoute';
 import { isDue, sortByReviewPriority } from '@/utils/srs';
 
 function reviewDifficulty(progress: UserSurahProgress) {
@@ -132,6 +133,8 @@ export default function ReviewScreen() {
   const progress = useQuranStore((state) => state.progress);
   const history = useQuranStore((state) => state.history);
   const startDailySession = useQuranStore((state) => state.startDailySession);
+  const completeDailySession = useQuranStore((state) => state.completeDailySession);
+  const clearActiveSession = useQuranStore((state) => state.clearActiveSession);
   const access = useAccess();
   const now = useMemo(() => new Date(), []);
   const reviewLimit = profile.dailyGoalReviews;
@@ -154,6 +157,28 @@ export default function ReviewScreen() {
     0,
   );
 
+  function launchReview(isBonus: boolean) {
+    // A session of another kind with nothing done in it would make
+    // `startDailySession` return early (it resumes today's session) and leave us
+    // with no review queue. Dropping it costs nothing — no work, no credit lost.
+    const idle = useQuranStore.getState().activeSession;
+    if (idle && idle.kind !== 'review' && !sessionHasWork(idle)) clearActiveSession();
+
+    // Révisions only: this tab used to launch the whole daily routine, so it also
+    // taught new verses — the Réviser and Apprendre tabs were two doors into the
+    // same room.
+    startDailySession(
+      sessionAccess(access.hasFullAccess, isBonus, undefined, 'review'),
+    );
+    const session = useQuranStore.getState().activeSession;
+    if (session?.reviewQueue.length) {
+      router.push('/session/review');
+      return;
+    }
+    // Nothing due and no bonus material: there is no session to run.
+    clearActiveSession();
+  }
+
   function startReviewSession(isBonus = false) {
     if (!known.length) {
       router.push('/library');
@@ -162,22 +187,39 @@ export default function ReviewScreen() {
     // Never write on unresolved capabilities: see useAccess.
     if (!access.resolved) return;
 
-    startDailySession(sessionAccess(access.hasFullAccess, isBonus));
-    const session = useQuranStore.getState().activeSession;
-    if (session?.reviewQueue.length) {
-      router.push('/session/review');
-    } else if (session?.versesTarget) {
-      router.push('/session/learn');
-    } else {
-      router.push('/learn');
+    // A learning (or daily, or final-check) session already under way is NOT
+    // ours to throw away. `startDailySession` resumes it instead of building a
+    // review queue, and this screen then found no queue and called
+    // `clearActiveSession()` — erasing an unfinished session with no credit at
+    // all: XP, streak and history simply gone.
+    const current = useQuranStore.getState().activeSession;
+    if (current && current.kind !== 'review' && sessionHasWork(current)) {
+      Alert.alert(
+        'Une session est déjà en cours',
+        'Tu peux la reprendre là où tu t’es arrêté, ou la terminer maintenant : le travail déjà fait sera enregistré avant de passer aux révisions.',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Reprendre', onPress: () => router.push(sessionRoute(current)) },
+          {
+            text: 'Terminer et réviser',
+            onPress: () => {
+              completeDailySession();
+              launchReview(isBonus);
+            },
+          },
+        ],
+      );
+      return;
     }
+
+    launchReview(isBonus);
   }
 
   return (
     <AppScreen>
       <ScreenTitle
         title="Réviser"
-        subtitle="Reviens sur les sourates au bon moment, sans surcharge."
+        subtitle="Tes sourates mémorisées, au bon moment."
       />
 
       <Card gradient style={styles.hero}>

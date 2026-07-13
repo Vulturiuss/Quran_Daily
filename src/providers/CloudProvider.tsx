@@ -15,6 +15,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { router } from 'expo-router';
 import type { Provider, Session } from '@supabase/supabase-js';
 
+import { registerPushToken, unregisterPushToken } from '@/services/pushTokens';
 import { isSupabaseConfigured, supabase } from '@/services/supabase';
 import { useQuranStore } from '@/store/useQuranStore';
 import { CloudSnapshot } from '@/types';
@@ -151,6 +152,14 @@ export function CloudProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  // A session appearing is the only moment this device can be attached to a user.
+  // It fails quietly: a refused notification permission must not break sign-in,
+  // it only means a parent's reminder will report "no device" instead.
+  useEffect(() => {
+    if (!session) return;
+    void registerPushToken();
+  }, [session]);
 
   const handleAuthCallback = useCallback(async (url?: string | null) => {
     if (!supabase || !url) return;
@@ -449,6 +458,10 @@ export function CloudProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async (): Promise<AuthResult> => {
     if (!supabase) return {};
+    // Before the session goes: RLS only lets us delete our own token, and a token
+    // left behind would keep sending this user's reminders to a phone that is no
+    // longer theirs.
+    await unregisterPushToken();
     const { error } = await supabase.auth.signOut();
     if (!error) {
       pulledUserId.current = undefined;

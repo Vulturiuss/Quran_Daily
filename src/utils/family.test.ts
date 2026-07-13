@@ -46,6 +46,42 @@ test('drops invalid dashboard rows and normalizes missing progress', () => {
   assert.equal(members[0].todayCompleted, false);
 });
 
+test('the verified minutes spent today are surfaced to the parent', () => {
+  // This figure is the whole point of the family plan: it comes from
+  // daily_sessions, which the server only writes for a session that could
+  // actually have been worked. A tapped-through session is refused outright, so
+  // it never reaches this number.
+  const members = normalizeFamilyMembers([
+    {
+      userId: 'child-1',
+      displayName: 'Maryam',
+      role: 'child',
+      todayCompleted: true,
+      todayMinutes: 7,
+      todayReviews: 2,
+      todayVersesLearned: 3,
+      history: [],
+      isOwner: false,
+    },
+  ]);
+
+  assert.equal(members[0].todayMinutes, 7);
+});
+
+test('a member row with no verified time reports zero, never a guess', () => {
+  const members = normalizeFamilyMembers([
+    {
+      userId: 'child-1',
+      displayName: 'Maryam',
+      role: 'child',
+      history: [],
+      isOwner: false,
+    },
+  ]);
+
+  assert.equal(members[0].todayMinutes, 0);
+});
+
 test('derives today completion from synchronized history', () => {
   const members = normalizeFamilyMembers(
     [

@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import {
   ArrowLeft,
+  BellRing,
   BookOpen,
   Clock3,
   Flame,
@@ -19,7 +20,9 @@ import {
 import { OrnamentalCard } from '@/components/OrnamentalCard';
 import {
   Card,
+  Eyebrow,
   IconButton,
+  PrimaryButton,
   ProgressBar,
   ScreenTitle,
   SectionHeader,
@@ -27,6 +30,7 @@ import {
 import { getSurah } from '@/data/surahs';
 import { useFamily } from '@/providers/FamilyProvider';
 import { useTheme } from '@/providers/ThemeProvider';
+import { sendFamilyNudge } from '@/services/family';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { goBackOrReplace } from '@/utils/navigation';
 import { buildActivitySeries } from '@/utils/statistics';
@@ -36,6 +40,8 @@ export default function FamilyMemberScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const { context, members, loading } = useFamily();
+  const [nudging, setNudging] = useState(false);
+  const [nudgeFeedback, setNudgeFeedback] = useState<string>();
   const member = members.find(
     (candidate) => candidate.userId === userId && candidate.role === 'child',
   );
@@ -82,6 +88,33 @@ export default function FamilyMemberScreen() {
   const recentSessions = [...member.history]
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 5);
+  const child = member;
+
+  // A reminder is not a punishment, and it is not a remote control. It can be
+  // sent once every few hours, only to a child who has not done their session
+  // yet, and it says nothing more than "we are thinking of you".
+  async function handleNudge() {
+    setNudging(true);
+    setNudgeFeedback(undefined);
+    const result = await sendFamilyNudge(child.userId);
+    setNudging(false);
+
+    if (result.error) {
+      setNudgeFeedback(result.error);
+      return;
+    }
+    if (result.data === 'rate_limited') {
+      setNudgeFeedback('Tu as déjà envoyé un rappel récemment.');
+      return;
+    }
+    if (result.data === 'no_device') {
+      setNudgeFeedback(
+        `${child.displayName} n’a pas encore activé les notifications.`,
+      );
+      return;
+    }
+    setNudgeFeedback('Rappel envoyé.');
+  }
 
   return (
     <AppScreen>
@@ -131,11 +164,50 @@ export default function FamilyMemberScreen() {
           </Text>
           <Text style={styles.todayText}>
             {member.todayCompleted
-              ? `${member.todayReviews} révision${member.todayReviews > 1 ? 's' : ''} · ${member.todayVersesLearned} verset${member.todayVersesLearned > 1 ? 's' : ''} · +${member.todayXPEarned} XP`
+              ? `${member.todayMinutes} min de travail · ${member.todayReviews} révision${member.todayReviews > 1 ? 's' : ''} · ${member.todayVersesLearned} verset${member.todayVersesLearned > 1 ? 's' : ''} · +${member.todayXPEarned} XP`
               : 'Aucune session synchronisée aujourd’hui.'}
           </Text>
+          {member.todayCompleted ? (
+            // The time is what makes the rest meaningful: it is measured on the
+            // text itself and validated by the server, so it cannot be earned by
+            // tapping through.
+            <Text style={styles.verifiedNote}>
+              Temps réellement passé sur le texte, vérifié.
+            </Text>
+          ) : null}
         </View>
       </Card>
+
+      {!member.todayCompleted ? (
+        <Card style={styles.nudgeCard}>
+          <View style={styles.nudgeTop}>
+            <View style={styles.nudgeIcon}>
+              <BellRing color={colors.gold} size={20} />
+            </View>
+            <View style={styles.heroCopy}>
+              <Eyebrow>Un geste, pas une pression</Eyebrow>
+              <Text style={styles.nudgeTitle}>
+                Envoyer un rappel à {member.displayName}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.nudgeText}>
+            Une notification douce, pour lui rappeler que sa session l’attend.
+            Un rappel toutes les six heures au maximum : au-delà, ce ne serait
+            plus un rappel.
+          </Text>
+          <PrimaryButton
+            icon={BellRing}
+            label="Envoyer un rappel"
+            loading={nudging}
+            onPress={() => void handleNudge()}
+            variant="surface"
+          />
+          {nudgeFeedback ? (
+            <Text style={styles.nudgeFeedback}>{nudgeFeedback}</Text>
+          ) : null}
+        </Card>
+      ) : null}
 
       <SectionHeader title="Parcours global" />
       <Card style={styles.globalCard}>
@@ -330,12 +402,54 @@ function createStyles(colors: Palette) {
     fontFamily: typography.extraBold,
     fontSize: 16,
   },
+  verifiedNote: {
+    color: colors.textFaint,
+    fontFamily: typography.regular,
+    fontSize: 11,
+    marginTop: 4,
+  },
   todayText: {
     color: colors.textMuted,
     fontFamily: typography.medium,
     fontSize: 12,
     lineHeight: 18,
     marginTop: 2,
+  },
+  nudgeCard: {
+    gap: spacing.md,
+    marginTop: spacing.sm,
+    padding: spacing.md,
+  },
+  nudgeTop: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  nudgeIcon: {
+    alignItems: 'center',
+    backgroundColor: withAlpha(colors.gold, 0.1),
+    borderRadius: radius.md,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  nudgeTitle: {
+    color: colors.text,
+    fontFamily: typography.extraBold,
+    fontSize: 16,
+    marginTop: 2,
+  },
+  nudgeText: {
+    color: colors.textMuted,
+    fontFamily: typography.regular,
+    fontSize: 12,
+    lineHeight: 19,
+  },
+  nudgeFeedback: {
+    color: colors.goldSoft,
+    fontFamily: typography.medium,
+    fontSize: 12,
+    textAlign: 'center',
   },
   globalCard: {
     alignItems: 'center',

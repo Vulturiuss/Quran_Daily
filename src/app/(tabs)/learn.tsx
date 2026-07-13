@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
   ArrowDown,
@@ -11,6 +11,7 @@ import {
   Play,
   Plus,
   Repeat,
+  ShieldCheck,
   Sparkles,
   Target,
   X,
@@ -28,8 +29,10 @@ import {
   PREMIUM_MAX_LEARNING_SURAHS,
   sessionAccess,
 } from '@/utils/access';
-import { useQuranStore } from '@/store/useQuranStore';
+import { sessionHasWork, useQuranStore } from '@/store/useQuranStore';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
+import { surahSolidity, verificationQueue } from '@/utils/memorization';
+import { sessionRoute } from '@/utils/sessionRoute';
 
 export default function LearnScreen() {
   const { colors } = useTheme();
@@ -37,6 +40,8 @@ export default function LearnScreen() {
   const progressMap = useQuranStore((state) => state.progress);
   const profile = useQuranStore((state) => state.profile);
   const startDailySession = useQuranStore((state) => state.startDailySession);
+  const startVerification = useQuranStore((state) => state.startVerification);
+  const completeDailySession = useQuranStore((state) => state.completeDailySession);
   const removeFromLearningQueue = useQuranStore((state) => state.removeFromLearningQueue);
   const reorderLearningQueue = useQuranStore((state) => state.reorderLearningQueue);
   const access = useAccess();
@@ -52,6 +57,41 @@ export default function LearnScreen() {
     [progressMap],
   );
 
+  // Every verse has been seen once, but the surah has not been recited whole yet.
+  // It is not a surah "being learnt" any more — it is waiting for its final check,
+  // and that check is the only thing that can make it `known`.
+  //
+  // A surah sent BACK by a failed check is `learning` again, with its weak verses
+  // named. It is fully seen, so no session ever teaches it a new verse: without a
+  // door here, its re-take was simply unreachable and the surah was stranded one
+  // step from the finish. That door is the whole point of a forgiving check.
+  const pendingVerification = useMemo(
+    () =>
+      Object.values(progressMap)
+        .filter(
+          (item) =>
+            item.status === 'verifying' ||
+            (item.status === 'learning' &&
+              item.totalVerses > 0 &&
+              item.versesLearned >= item.totalVerses &&
+              (item.weakVerses ?? []).length > 0),
+        )
+        .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))[0],
+    [progressMap],
+  );
+  const verifySurah = getSurah(pendingVerification?.surahNumber);
+  // Whole surah the first time; only what wavered on a re-take.
+  const verifyQueueLength = pendingVerification
+    ? verificationQueue(pendingVerification).length
+    : 0;
+  const isRepair =
+    Boolean(pendingVerification) &&
+    verifyQueueLength > 0 &&
+    verifyQueueLength < (pendingVerification?.totalVerses ?? 0);
+  const solidity = pendingVerification
+    ? Math.round(surahSolidity(pendingVerification) * 100)
+    : 0;
+
   const [selectedSurah, setSelectedSurah] = useState<number>();
   const learning =
     active.find((item) => item.surahNumber === selectedSurah) ?? active[0];
@@ -66,17 +106,100 @@ export default function LearnScreen() {
     // Never write on unresolved capabilities: the free freeze allowance would be
     // stamped into the session and clamp a subscriber's freezes for the month.
     if (!access.resolved) return;
+    // This tab is the learning half only — sabqi then new verses. Révisions live
+    // in their own tab: the two used to launch the same session, so they were two
+    // doors into the same room.
     startDailySession(
-      sessionAccess(access.hasFullAccess, false, learning?.surahNumber),
+      sessionAccess(access.hasFullAccess, false, learning?.surahNumber, 'learn'),
     );
-    const session = useQuranStore.getState().activeSession;
-    router.push(session?.reviewQueue.length ? '/session/review' : '/session/learn');
+    router.push('/session/learn');
   }
+
+  function startFinalCheck(surahNumber: number) {
+    // Never write on unresolved capabilities: see `start()`.
+    if (!access.resolved) return;
+
+    // `startVerification` overwrites `activeSession` outright. A session already
+    // under way was therefore destroyed without ever being closed: its XP, its
+    // streak day and its history record vanished. Nothing is discarded silently
+    // any more.
+    const current = useQuranStore.getState().activeSession;
+    if (current && sessionHasWork(current)) {
+      Alert.alert(
+        'Une session est déjà en cours',
+        'Tu peux la reprendre là où tu t’es arrêté, ou la terminer maintenant : le travail déjà fait sera enregistré avant de commencer le contrôle final.',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Reprendre', onPress: () => router.push(sessionRoute(current)) },
+          {
+            text: 'Terminer puis démarrer',
+            onPress: () => {
+              completeDailySession();
+              startVerification(surahNumber);
+              router.push('/session/verify');
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    startVerification(surahNumber);
+    router.push('/session/verify');
+  }
+
+  const verificationCard =
+    pendingVerification && verifySurah ? (
+      <Card gradient style={styles.verifyCard}>
+        <View style={styles.verifyTop}>
+          <View style={styles.verifyIcon}>
+            <ShieldCheck color={colors.gold} size={22} />
+          </View>
+          <View style={styles.verifyCopy}>
+            <Eyebrow>{isRepair ? 'Presque là' : 'Dernière étape'}</Eyebrow>
+            <Text style={styles.verifyTitle}>
+              {isRepair
+                ? `${verifySurah.nameTranslit} : raffermir ${verifyQueueLength} verset${
+                    verifyQueueLength > 1 ? 's' : ''
+                  }`
+                : `${verifySurah.nameTranslit} : contrôle final`}
+            </Text>
+          </View>
+        </View>
+        <Text style={styles.verifyText}>
+          {isRepair
+            ? `${verifySurah.nameTranslit} tient déjà à ${solidity} %. Pas besoin de la reprendre en entier : ${
+                verifyQueueLength > 1
+                  ? `seuls ${verifyQueueLength} versets`
+                  : 'un seul verset'
+              } ${verifyQueueLength > 1 ? 'demandent' : 'demande'} encore à être raffermi${
+                verifyQueueLength > 1 ? 's' : ''
+              }, et la sourate rejoindra tes sourates mémorisées.`
+            : 'Tu as vu tous les versets de cette sourate. Récite-la maintenant en entier, verset après verset : c’est ce qui la fera entrer dans tes sourates mémorisées. Ce qui hésite reviendra simplement en révision.'}
+        </Text>
+        <PrimaryButton
+          icon={ShieldCheck}
+          label={isRepair ? 'Raffermir ces versets' : 'Réciter la sourate'}
+          loading={!access.resolved}
+          onPress={() => startFinalCheck(verifySurah.number)}
+        />
+      </Card>
+    ) : null;
 
   if (!learning || !surah) {
     return (
       <AppScreen>
-        <ScreenTitle title="Apprendre" subtitle="Choisis une sourate pour commencer." />
+        <ScreenTitle
+          title="Apprendre"
+          subtitle={
+            verificationCard
+              ? isRepair
+                ? 'Quelques versets à raffermir, et la sourate est complète.'
+                : 'Une sourate attend son contrôle final.'
+              : 'Choisis une sourate pour commencer.'
+          }
+        />
+        {verificationCard}
         <Card style={styles.empty}>
           <BookOpenCheck color={colors.gold} size={40} />
           <Text style={styles.emptyTitle}>Aucune sourate en cours</Text>
@@ -93,8 +216,10 @@ export default function LearnScreen() {
     <AppScreen>
       <ScreenTitle
         title="Apprendre"
-        subtitle="Un verset après l’autre, avec calme et répétition."
+        subtitle="On consolide les versets récents, puis on en ajoute de nouveaux."
       />
+
+      {verificationCard}
 
       {active.length > 1 ? (
         <View style={styles.activeSurahs}>
@@ -351,6 +476,41 @@ function createStyles(colors: Palette) {
     fontFamily: typography.regular,
     fontSize: 11,
     marginTop: 2,
+  },
+  verifyCard: {
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  verifyTop: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  verifyIcon: {
+    alignItems: 'center',
+    backgroundColor: withAlpha(colors.gold, 0.12),
+    borderColor: colors.gold,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    height: 46,
+    justifyContent: 'center',
+    width: 46,
+  },
+  verifyCopy: {
+    flex: 1,
+  },
+  verifyTitle: {
+    color: colors.text,
+    fontFamily: typography.extraBold,
+    fontSize: 20,
+    letterSpacing: -0.4,
+    marginTop: 2,
+  },
+  verifyText: {
+    color: colors.textMuted,
+    fontFamily: typography.regular,
+    fontSize: 13,
+    lineHeight: 20,
   },
   addSurah: {
     alignItems: 'center',

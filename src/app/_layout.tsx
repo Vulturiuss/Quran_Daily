@@ -22,7 +22,9 @@ import { AudioProvider } from '@/providers/AudioProvider';
 import { CloudProvider } from '@/providers/CloudProvider';
 import { FamilyProvider } from '@/providers/FamilyProvider';
 import { GamificationProvider } from '@/providers/GamificationProvider';
+import { OfflineAudioProvider } from '@/providers/OfflineAudioProvider';
 import { ReminderProvider } from '@/providers/ReminderProvider';
+import { SessionUploadProvider } from '@/providers/SessionUploadProvider';
 import { SubscriptionProvider } from '@/providers/SubscriptionProvider';
 import { ThemeProvider, useTheme } from '@/providers/ThemeProvider';
 import { colors } from '@/theme';
@@ -77,12 +79,14 @@ function ThemedStack() {
       <Stack.Screen name="family/index" />
       <Stack.Screen name="family/[userId]" />
       <Stack.Screen name="library" />
+      <Stack.Screen name="map" />
       <Stack.Screen name="privacy" />
       <Stack.Screen name="subscription" />
       <Stack.Screen name="terms" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="session/review" options={{ gestureEnabled: false }} />
       <Stack.Screen name="session/learn" options={{ gestureEnabled: false }} />
+      <Stack.Screen name="session/verify" options={{ gestureEnabled: false }} />
       <Stack.Screen name="session/complete" options={{ gestureEnabled: false }} />
         <Stack.Screen name="surah/[number]" />
       </Stack>
@@ -112,6 +116,10 @@ export default function RootLayout() {
         <FamilyProvider>
           <ReminderProvider>
             <SubscriptionProvider>
+              <SessionUploadProvider>
+              {/* Inside SubscriptionProvider: offline audio is a Premium feature,
+                  so it needs the tier before it downloads anything. */}
+              <OfflineAudioProvider>
               <GamificationProvider>
                 {/* ThemeProvider sits below SubscriptionProvider: themes are a
                     Premium feature, so it needs to know the tier to fall back to
@@ -122,6 +130,8 @@ export default function RootLayout() {
                   </AudioProvider>
                 </ThemeProvider>
               </GamificationProvider>
+              </OfflineAudioProvider>
+              </SessionUploadProvider>
             </SubscriptionProvider>
           </ReminderProvider>
         </FamilyProvider>

@@ -82,14 +82,14 @@ create table if not exists public.user_badges (
   unique (user_id, badge_id)
 );
 
--- The payload is written freely by the client (it is the user's own progress),
--- so it is bounded: a member could otherwise store megabytes of jsonb, which the
--- family dashboard then walks on every read.
+-- The payload is written freely by the client — it is the user's own progress,
+-- kept here only so it survives a reinstall or a new device. It is bounded, since
+-- a member could otherwise store megabytes of jsonb.
 --
--- NOTE: the family dashboard derives every figure a parent sees from this
--- payload, so those figures are DECLARATIVE — a child can edit their own row.
--- Making them trustworthy means deriving them server-side from daily_sessions /
--- streaks / user_xp, which exist but are not read today.
+-- It is NOT what a parent sees. Everything the family dashboard reports about
+-- effort — sessions done, time spent, streak, XP — comes from `daily_sessions`,
+-- which only `record_daily_session()` can write. A child editing this row can
+-- change what their own device shows them, and nothing more.
 create table if not exists public.user_state_snapshots (
   user_id uuid primary key references auth.users(id) on delete cascade,
   payload jsonb not null default '{}'::jsonb
@@ -222,9 +222,47 @@ grant update (
 drop policy if exists "surah_progress_own_rows" on public.surah_progress;
 create policy "surah_progress_own_rows" on public.surah_progress
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+-- One row per user per day, accumulated by record_daily_session().
+alter table public.daily_sessions
+  add column if not exists active_seconds integer not null default 0,
+  add column if not exists session_count integer not null default 0,
+  -- Verses replayed in sabqi or in a final recitation. A different unit from a
+  -- surah review, and conflating them made the server refuse honest work.
+  add column if not exists recited_verses integer not null default 0;
+
+-- Sessions are submitted from a queue that survives being offline, so the same
+-- one can arrive twice. Without this, a retry would double a child's streak day.
+create table if not exists public.session_submissions (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  client_id text not null,
+  session_date date not null,
+  received_at timestamptz not null default now(),
+  primary key (user_id, client_id)
+);
+
+alter table public.session_submissions enable row level security;
+drop policy if exists "session_submissions_select_own" on public.session_submissions;
+create policy "session_submissions_select_own" on public.session_submissions
+  for select using (auth.uid() = user_id);
+
+-- `revoke all` then `grant select`, rather than revoking the three write verbs:
+-- Supabase grants ALL on public tables by default, and ALL includes TRUNCATE —
+-- which RLS does not police. Naming the writes left the table truncatable.
+revoke all on public.session_submissions from authenticated;
+revoke all on public.session_submissions from anon;
+grant select on public.session_submissions to authenticated;
+
+-- daily_sessions is the ONLY thing a parent's dashboard trusts, so the client can
+-- read its own rows but never write them: everything goes through
+-- record_daily_session(), which refuses a session that could not have been worked.
+-- It used to be `for all`, i.e. a child could simply PATCH themselves a streak.
 drop policy if exists "daily_sessions_own_rows" on public.daily_sessions;
-create policy "daily_sessions_own_rows" on public.daily_sessions
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "daily_sessions_select_own_rows" on public.daily_sessions
+  for select using (auth.uid() = user_id);
+
+revoke all on public.daily_sessions from authenticated;
+revoke all on public.daily_sessions from anon;
+grant select on public.daily_sessions to authenticated;
 drop policy if exists "streaks_own_row" on public.streaks;
 create policy "streaks_own_row" on public.streaks
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
@@ -789,11 +827,17 @@ begin
         'role', member.role,
         'isOwner', family.owner_id = member.user_id,
         'joinedAt', member.joined_at,
-        'currentStreak', coalesce((snapshot.payload #>> '{stats,currentStreak}')::integer, 0),
-        'longestStreak', coalesce((snapshot.payload #>> '{stats,longestStreak}')::integer, 0),
-        'totalXP', coalesce((snapshot.payload #>> '{stats,totalXP}')::integer, 0),
-        'totalSessions', coalesce((snapshot.payload #>> '{stats,totalSessions}')::integer, 0),
-        'totalMinutes', coalesce((snapshot.payload #>> '{stats,totalMinutes}')::integer, 0),
+        -- VERIFIED: from daily_sessions, which only record_daily_session() can
+        -- write and which refuses a session that could not have been worked.
+        -- These used to come from the snapshot — a blob the child writes — so a
+        -- child could simply hand their parents a 365-day streak.
+        'currentStreak', public.verified_streak(member.user_id),
+        'longestStreak', coalesce(verified.longest_streak, 0),
+        'totalXP', coalesce(verified.total_xp, 0),
+        'totalSessions', coalesce(verified.total_sessions, 0),
+        'totalMinutes', coalesce(verified.total_minutes, 0),
+        -- DECLARATIVE: the child's own claim about their memorisation. Not a
+        -- cheat vector for the daily habit a parent follows, but not proof either.
         'knownSurahs', coalesce((
           select count(*)
           from jsonb_each(coalesce(snapshot.payload -> 'progress', '{}'::jsonb)) progress_item
@@ -821,38 +865,39 @@ begin
           where progress_item.value ->> 'status' = 'learning'
           limit 1
         ),
-        -- The dashboard exists so parents can follow their children. Another
-        -- parent's day-by-day history is none of their business, so it is only
+        -- VERIFIED history, straight from the accepted sessions. Another parent's
+        -- day-by-day history is none of a parent's business, so it is only
         -- returned for children and for the caller themselves.
         'history', case
-          when member.role = 'child' or member.user_id = auth.uid()
-            then coalesce(snapshot.payload -> 'history', '[]'::jsonb)
+          when member.role = 'child' or member.user_id = auth.uid() then coalesce((
+            select jsonb_agg(
+              jsonb_build_object(
+                'date', day.session_date,
+                'completedAt', day.completed_at,
+                'durationSeconds', day.active_seconds,
+                'xpEarned', day.xp_earned,
+                'surahsReviewed', day.surahs_reviewed,
+                'versesLearned', day.verses_learned,
+                'isPerfect', day.is_perfect,
+                'sessionCount', day.session_count
+              )
+              order by day.session_date desc
+            )
+            from public.daily_sessions day
+            where day.user_id = member.user_id
+              and day.session_count > 0
+              and day.session_date >= current_date - 90
+          ), '[]'::jsonb)
           else '[]'::jsonb
         end,
-        'todayCompleted', coalesce((
-          select count(*) > 0
-          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
-          where history_item.value ->> 'date' = current_date::text
-        ), false),
-        'todayReviews', coalesce((
-          select sum(coalesce((history_item.value ->> 'surahsReviewed')::integer, 0))
-          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
-          where history_item.value ->> 'date' = current_date::text
-        ), 0),
-        'todayVersesLearned', coalesce((
-          select sum(coalesce((history_item.value ->> 'versesLearned')::integer, 0))
-          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
-          where history_item.value ->> 'date' = current_date::text
-        ), 0),
-        'todayXPEarned', coalesce((
-          select sum(coalesce((history_item.value ->> 'xpEarned')::integer, 0))
-          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
-          where history_item.value ->> 'date' = current_date::text
-        ), 0),
-        'lastSessionDate', (
-          select max(history_item.value ->> 'date')
-          from jsonb_array_elements(coalesce(snapshot.payload -> 'history', '[]'::jsonb)) history_item
-        ),
+        -- VERIFIED: whether today's work actually happened, and how long it
+        -- actually took. This is the question the family plan exists to answer.
+        'todayCompleted', coalesce(today.session_count, 0) > 0,
+        'todayReviews', coalesce(today.surahs_reviewed, 0),
+        'todayVersesLearned', coalesce(today.verses_learned, 0),
+        'todayXPEarned', coalesce(today.xp_earned, 0),
+        'todayMinutes', round(coalesce(today.active_seconds, 0) / 60.0),
+        'lastSessionDate', verified.last_session_date,
         'snapshotUpdatedAt', snapshot.updated_at
       )
       order by member.role desc, member.joined_at
@@ -864,6 +909,31 @@ begin
   join public.families family on family.id = member.family_id
   join public.profiles profile on profile.id = member.user_id
   left join public.user_state_snapshots snapshot on snapshot.user_id = member.user_id
+  left join lateral (
+    select
+      sum(day.xp_earned)::integer as total_xp,
+      sum(day.session_count)::integer as total_sessions,
+      round(sum(day.active_seconds) / 60.0)::integer as total_minutes,
+      max(day.session_date) as last_session_date,
+      public.verified_longest_streak(member.user_id) as longest_streak
+    from public.daily_sessions day
+    where day.user_id = member.user_id
+      and day.session_count > 0
+  ) verified on true
+  left join lateral (
+    select day.session_count, day.surahs_reviewed, day.verses_learned,
+           day.xp_earned, day.active_seconds
+    from public.daily_sessions day
+    where day.user_id = member.user_id
+      -- The child's day, not the server's. `current_date` is UTC on Supabase, so
+      -- a Paris session finished at 00:30 landed on a date the parent's "today"
+      -- would never match — the dashboard showed the routine as not done, minutes
+      -- after it was.
+      and day.session_date = (
+        now() at time zone coalesce(profile.timezone, 'UTC')
+      )::date
+      and day.session_count > 0
+  ) today on true
   where member.family_id = owned_family_id;
 
   return result;
@@ -900,3 +970,491 @@ begin
   end if;
 end
 $$;
+
+-- ---------------------------------------------------------------------------
+-- Sessions: the server decides whether a session counts
+-- ---------------------------------------------------------------------------
+
+-- Mirrors SERVER_MIN_SECONDS_PER_ITEM in src/utils/effort.ts, and MUST stay below
+-- the smallest floor the app itself enforces. Anything higher refuses work that
+-- was honestly done: sabqi verses are reported as reviews, the app only gates a
+-- short verse at 4 s, and a 5 s-per-review floor here rejected four honest sabqi
+-- verses on Al-Ikhlas outright.
+--
+-- This is only a sanity net. The real gate is the client's, and the real
+-- protection is that the time is credited exactly as it was spent.
+create or replace function public.session_items(
+  verses_learned integer,
+  surahs_reviewed integer,
+  recited_verses integer
+)
+returns integer
+language sql
+immutable
+set search_path = ''
+as $$
+  select greatest(0, verses_learned)
+       + greatest(0, surahs_reviewed)
+       + greatest(0, recited_verses);
+$$;
+
+revoke all on function public.session_items(integer, integer, integer) from public;
+revoke all on function public.session_items(integer, integer, integer) from anon;
+
+drop function if exists public.session_time_floor(integer, integer);
+
+create or replace function public.session_time_floor(
+  verses_learned integer,
+  surahs_reviewed integer,
+  recited_verses integer
+)
+returns integer
+language sql
+immutable
+set search_path = ''
+as $$
+  select public.session_items(verses_learned, surahs_reviewed, recited_verses) * 3;
+$$;
+
+revoke all on function public.session_time_floor(integer, integer, integer) from public;
+revoke all on function public.session_time_floor(integer, integer, integer) from anon;
+
+/*
+ * Records one completed session, or refuses it.
+ *
+ * This is what makes the family dashboard mean something. Everything a parent
+ * sees used to come from a JSON blob the child wrote themselves, so a child could
+ * simply hand their parents a 365-day streak. The figures now come from this
+ * table, and this table only accepts sessions that could actually have been
+ * worked:
+ *
+ *  - the time claimed must cover a plausible minimum per item, which is what
+ *    stops tapping straight through;
+ *  - it cannot exceed the wall-clock time between start and finish, so no amount
+ *    of tapping fabricates minutes;
+ *  - it is bounded, so idling does not fabricate them either;
+ *  - it cannot be back-dated, so a missed day stays missed;
+ *  - a resubmitted session (the offline queue retries) is accepted once.
+ *
+ * Every parameter is prefixed `p_`. This is not cosmetic: `session_date`,
+ * `completed_at` and friends are also column names, and an unprefixed parameter
+ * makes `ON CONFLICT (user_id, session_date)` ambiguous — PL/pgSQL then raises
+ * "column reference is ambiguous" at runtime, on every single call, while the
+ * script still installs cleanly. The whole feature would have been silently dead.
+ *
+ * Honest limit, stated plainly: a determined child who calls this RPC directly can
+ * still submit plausible-but-false numbers for today. What they cannot do is
+ * rebuild a history: back-dating is refused.
+ */
+
+-- Both older shapes must go. `create or replace` cannot rename input parameters,
+-- and the 9-argument version predates `recited_verses`.
+drop function if exists public.record_daily_session(
+  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean
+);
+drop function if exists public.record_daily_session(
+  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean, integer
+);
+
+create or replace function public.record_daily_session(
+  p_client_id text,
+  p_session_date date,
+  p_started_at timestamptz,
+  p_completed_at timestamptz,
+  p_active_seconds integer,
+  p_xp_earned integer,
+  p_surahs_reviewed integer,
+  p_verses_learned integer,
+  p_is_perfect boolean default false,
+  p_recited_verses integer default 0
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  current_user_id uuid := auth.uid();
+  elapsed_seconds integer;
+  floor_seconds integer;
+  item_count integer;
+  day_count integer;
+begin
+  if current_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  -- A null slips through every comparison below (null < 0 is null, not true), so
+  -- it is rejected up front rather than blowing up on a NOT NULL constraint and
+  -- being retried forever by the offline queue.
+  if p_client_id is null or length(p_client_id) = 0 or length(p_client_id) > 100
+     or p_session_date is null
+     or p_active_seconds is null or p_xp_earned is null
+     or p_surahs_reviewed is null or p_verses_learned is null
+     or p_recited_verses is null
+  then
+    return jsonb_build_object('accepted', false, 'reason', 'invalid_payload');
+  end if;
+
+  -- Already recorded: the offline queue retried. Accept without counting twice.
+  if exists (
+    select 1
+    from public.session_submissions submission
+    where submission.user_id = current_user_id
+      and submission.client_id = p_client_id
+  ) then
+    return jsonb_build_object('accepted', true, 'duplicate', true);
+  end if;
+
+  -- A full recitation of Al-Baqara is 286 recited verses, so that bound is wide;
+  -- the other two are not.
+  if p_verses_learned < 0 or p_verses_learned > 50
+     or p_surahs_reviewed < 0 or p_surahs_reviewed > 20
+     or p_recited_verses < 0 or p_recited_verses > 300
+     or p_xp_earned < 0 or p_xp_earned > 6000
+  then
+    return jsonb_build_object('accepted', false, 'reason', 'implausible_counts');
+  end if;
+
+  item_count := public.session_items(
+    p_verses_learned, p_surahs_reviewed, p_recited_verses
+  );
+
+  if item_count = 0 then
+    return jsonb_build_object('accepted', false, 'reason', 'empty_session');
+  end if;
+
+  if p_started_at is null or p_completed_at is null
+     or p_completed_at < p_started_at
+     or p_completed_at > now() + interval '5 minutes'
+     -- No lower bound meant a child could post a session dated two years ago, one
+     -- call per day, and hand their parents a fabricated year of history — in the
+     -- very table that claims to only hold work that was really done.
+     or p_completed_at < now() - interval '2 days'
+  then
+    return jsonb_build_object('accepted', false, 'reason', 'implausible_timestamps');
+  end if;
+
+  -- The session must be filed on the day it was finished. A one-day slack would
+  -- let a missed day be filled in from the next one — which is exactly the hole
+  -- this is supposed to close — so the only tolerance is the timezone one: a
+  -- session finished just after midnight UTC may still belong to the previous
+  -- local day.
+  if p_session_date <> p_completed_at::date
+     and not (
+       p_session_date = p_completed_at::date - 1
+       and p_completed_at::time < time '14:00'
+     )
+  then
+    return jsonb_build_object('accepted', false, 'reason', 'date_mismatch');
+  end if;
+
+  elapsed_seconds := ceil(
+    extract(epoch from (p_completed_at - p_started_at))
+  )::integer;
+  floor_seconds := public.session_time_floor(
+    p_verses_learned, p_surahs_reviewed, p_recited_verses
+  );
+
+  -- Tapped straight through: not enough time to have read anything.
+  if p_active_seconds < floor_seconds then
+    return jsonb_build_object(
+      'accepted', false,
+      'reason', 'too_fast',
+      'required_seconds', floor_seconds
+    );
+  end if;
+
+  -- Cannot claim more focused time than the session actually lasted, nor more
+  -- than an hour, nor more than its items could plausibly hold.
+  if p_active_seconds > elapsed_seconds + 5
+     or p_active_seconds > 3600
+     or p_active_seconds > 180 * item_count
+  then
+    return jsonb_build_object('accepted', false, 'reason', 'implausible_duration');
+  end if;
+
+  select coalesce(day.session_count, 0)
+  into day_count
+  from public.daily_sessions day
+  where day.user_id = current_user_id
+    and day.session_date = p_session_date;
+
+  if coalesce(day_count, 0) >= 20 then
+    return jsonb_build_object('accepted', false, 'reason', 'daily_limit');
+  end if;
+
+  insert into public.session_submissions (user_id, client_id, session_date)
+  values (current_user_id, p_client_id, p_session_date);
+
+  insert into public.daily_sessions as day (
+    user_id, session_date, completed, completed_at,
+    duration_seconds, active_seconds, session_count,
+    xp_earned, surahs_reviewed, recited_verses, verses_learned, is_perfect
+  )
+  values (
+    current_user_id,
+    p_session_date,
+    true,
+    p_completed_at,
+    p_active_seconds,
+    p_active_seconds,
+    1,
+    p_xp_earned,
+    p_surahs_reviewed,
+    p_recited_verses,
+    p_verses_learned,
+    p_is_perfect
+  )
+  on conflict (user_id, session_date) do update
+  set completed = true,
+      completed_at = greatest(day.completed_at, excluded.completed_at),
+      duration_seconds = day.duration_seconds + excluded.duration_seconds,
+      active_seconds = day.active_seconds + excluded.active_seconds,
+      session_count = day.session_count + 1,
+      xp_earned = day.xp_earned + excluded.xp_earned,
+      surahs_reviewed = day.surahs_reviewed + excluded.surahs_reviewed,
+      recited_verses = day.recited_verses + excluded.recited_verses,
+      verses_learned = day.verses_learned + excluded.verses_learned,
+      is_perfect = day.is_perfect or excluded.is_perfect;
+
+  return jsonb_build_object('accepted', true, 'duplicate', false);
+end;
+$$;
+
+revoke all on function public.record_daily_session(
+  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean, integer
+) from public;
+revoke all on function public.record_daily_session(
+  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean, integer
+) from anon;
+grant execute on function public.record_daily_session(
+  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean, integer
+) to authenticated;
+
+-- Consecutive days ending today or yesterday, computed from what the server
+-- accepted -- not from what the device claims.
+--
+-- "Today" is the member's own day: `current_date` is UTC on Supabase, so for a
+-- user west of it the server rolls over hours early and a live streak read as
+-- broken.
+create or replace function public.verified_streak(target_user_id uuid)
+returns integer
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  with member_today as (
+    select (
+      now() at time zone coalesce(profile.timezone, 'UTC')
+    )::date as today
+    from public.profiles profile
+    where profile.id = target_user_id
+  ),
+  days as (
+    select distinct day.session_date
+    from public.daily_sessions day
+    where day.user_id = target_user_id
+      and day.session_count > 0
+  ),
+  ordered as (
+    select
+      days.session_date,
+      days.session_date
+        + ((row_number() over (order by days.session_date desc)) || ' days')::interval
+        as anchor
+    from days
+  ),
+  latest as (
+    select ordered.anchor
+    from ordered
+    where ordered.session_date
+      >= coalesce((select member_today.today from member_today), current_date) - 1
+    order by ordered.session_date desc
+    limit 1
+  )
+  select coalesce((
+    select count(*)::integer
+    from ordered
+    where ordered.anchor = (select latest.anchor from latest)
+  ), 0);
+$$;
+
+revoke all on function public.verified_streak(uuid) from public;
+revoke all on function public.verified_streak(uuid) from anon;
+revoke all on function public.verified_streak(uuid) from authenticated;
+
+-- The longest run of consecutive days ever recorded, from accepted sessions only.
+create or replace function public.verified_longest_streak(target_user_id uuid)
+returns integer
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  with days as (
+    select distinct day.session_date
+    from public.daily_sessions day
+    where day.user_id = target_user_id
+      and day.session_count > 0
+  ),
+  islands as (
+    select
+      days.session_date
+        - ((row_number() over (order by days.session_date)) || ' days')::interval
+        as island
+    from days
+  )
+  select coalesce(max(run.length), 0)::integer
+  from (
+    select count(*) as length
+    from islands
+    group by islands.island
+  ) run;
+$$;
+
+revoke all on function public.verified_longest_streak(uuid) from public;
+revoke all on function public.verified_longest_streak(uuid) from anon;
+revoke all on function public.verified_longest_streak(uuid) from authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Parent -> child reminders
+-- ---------------------------------------------------------------------------
+
+-- One row per device. A user can have several; a device can be reassigned to
+-- another user (a shared family tablet), so the token is the key, not the user.
+create table if not exists public.push_tokens (
+  token text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  platform text not null check (platform in ('ios', 'android', 'web')),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists push_tokens_user_id_idx on public.push_tokens(user_id);
+
+alter table public.push_tokens enable row level security;
+
+-- A user manages only their own tokens, and can never read anyone else's: a push
+-- token is enough to send a notification, so it is a capability, not a datum.
+drop policy if exists "push_tokens_own_rows" on public.push_tokens;
+create policy "push_tokens_own_rows" on public.push_tokens
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+revoke all on public.push_tokens from anon;
+revoke all on public.push_tokens from authenticated;
+grant select, insert, update, delete on public.push_tokens to authenticated;
+
+-- Nudges sent, so a child cannot be pestered every thirty seconds.
+create table if not exists public.family_nudges (
+  id uuid primary key default gen_random_uuid(),
+  parent_id uuid not null references auth.users(id) on delete cascade,
+  child_id uuid not null references auth.users(id) on delete cascade,
+  sent_at timestamptz not null default now()
+);
+
+create index if not exists family_nudges_child_idx
+  on public.family_nudges(child_id, sent_at desc);
+
+alter table public.family_nudges enable row level security;
+drop policy if exists "family_nudges_select_own" on public.family_nudges;
+create policy "family_nudges_select_own" on public.family_nudges
+  for select using (auth.uid() = parent_id or auth.uid() = child_id);
+revoke all on public.family_nudges from anon;
+revoke all on public.family_nudges from authenticated;
+grant select on public.family_nudges to authenticated;
+
+/*
+ * A parent asks the server to remind their child.
+ *
+ * The parent never sees the child's push token — that would be a capability to
+ * notify them from anywhere, forever. They name the child; the server checks that
+ * they really are a parent in the same family with an active subscription, checks
+ * that the child has not already been nudged in the last few hours, records the
+ * nudge, and returns the tokens for the Edge Function to send to.
+ *
+ * The rate limit is not a technicality. A reminder that can be fired at will
+ * stops being a reminder and becomes nagging, and an app that lets a parent nag a
+ * child about the Quran is an app the child will come to resent.
+ */
+create or replace function public.request_family_nudge(child_user_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  parent_family_id uuid;
+  recent_count integer;
+  tokens jsonb;
+  child_name text;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select member.family_id
+  into parent_family_id
+  from public.family_members member
+  where member.user_id = auth.uid()
+    and member.role = 'parent'
+    and public.family_owner_has_access(member.family_id);
+
+  if parent_family_id is null then
+    raise exception 'Un espace Famille actif est nécessaire.';
+  end if;
+
+  if not exists (
+    select 1
+    from public.family_members member
+    where member.family_id = parent_family_id
+      and member.user_id = request_family_nudge.child_user_id
+      and member.role = 'child'
+  ) then
+    raise exception 'Cet enfant ne fait pas partie de ta famille.';
+  end if;
+
+  select count(*)
+  into recent_count
+  from public.family_nudges nudge
+  where nudge.child_id = request_family_nudge.child_user_id
+    and nudge.sent_at > now() - interval '6 hours';
+
+  if recent_count >= 1 then
+    return jsonb_build_object(
+      'sent', false,
+      'reason', 'rate_limited'
+    );
+  end if;
+
+  select coalesce(
+    jsonb_agg(jsonb_build_object('token', token.token, 'platform', token.platform)),
+    '[]'::jsonb
+  )
+  into tokens
+  from public.push_tokens token
+  where token.user_id = request_family_nudge.child_user_id;
+
+  if jsonb_array_length(tokens) = 0 then
+    return jsonb_build_object('sent', false, 'reason', 'no_device');
+  end if;
+
+  select profile.display_name
+  into child_name
+  from public.profiles profile
+  where profile.id = request_family_nudge.child_user_id;
+
+  insert into public.family_nudges (parent_id, child_id)
+  values (auth.uid(), request_family_nudge.child_user_id);
+
+  return jsonb_build_object(
+    'sent', true,
+    'tokens', tokens,
+    'childName', coalesce(child_name, 'ton enfant')
+  );
+end;
+$$;
+
+revoke all on function public.request_family_nudge(uuid) from public;
+revoke all on function public.request_family_nudge(uuid) from anon;
+grant execute on function public.request_family_nudge(uuid) to authenticated;

@@ -45,6 +45,7 @@ export default function SurahDetailScreen() {
   const preferredReciter = useQuranStore((state) => state.profile.preferredReciter);
   const learningQueue = useQuranStore((state) => state.profile.learningQueue);
   const setLearningSurah = useQuranStore((state) => state.setLearningSurah);
+  const startVerification = useQuranStore((state) => state.startVerification);
   const markSurahKnown = useQuranStore((state) => state.markSurahKnown);
   const markSurahForgotten = useQuranStore((state) => state.markSurahForgotten);
   const addToLearningQueue = useQuranStore((state) => state.addToLearningQueue);
@@ -155,9 +156,11 @@ export default function SurahDetailScreen() {
               <Text style={styles.progressLabel}>
                 {progress.status === 'known'
                   ? 'Sourate connue'
-                  : progress.status === 'learning'
-                    ? 'En apprentissage'
-                    : 'À apprendre'}
+                  : progress.status === 'verifying'
+                    ? 'Contrôle final à passer'
+                    : progress.status === 'learning'
+                      ? 'En apprentissage'
+                      : 'À apprendre'}
               </Text>
               <Text style={styles.progressValue}>{Math.round(value * 100)}%</Text>
             </View>
@@ -170,7 +173,19 @@ export default function SurahDetailScreen() {
       </OrnamentalCard>
 
       <View style={styles.actions}>
-        {progress?.status !== 'known' ? (
+        {/* A surah awaiting its final recitation must not offer to be learnt
+            again: setLearningSurah would drop it back to `learning`, take a slot,
+            and evict the surah actually in progress. */}
+        {progress?.status === 'verifying' ? (
+          <PrimaryButton
+            icon={GraduationCap}
+            label="Passer le contrôle final"
+            onPress={() => {
+              startVerification(number);
+              router.push('/session/verify');
+            }}
+          />
+        ) : progress?.status !== 'known' ? (
           <PrimaryButton
             icon={GraduationCap}
             label={
@@ -181,7 +196,7 @@ export default function SurahDetailScreen() {
             onPress={chooseForLearning}
           />
         ) : null}
-        {progress?.status !== 'known' ? (
+        {progress?.status !== 'known' && progress?.status !== 'verifying' ? (
           <PrimaryButton
             icon={Check}
             label="Je la connais déjà"
@@ -189,7 +204,9 @@ export default function SurahDetailScreen() {
             variant="surface"
           />
         ) : null}
-        {progress?.status !== 'known' && progress?.status !== 'learning' ? (
+        {progress?.status !== 'known' &&
+        progress?.status !== 'learning' &&
+        progress?.status !== 'verifying' ? (
           <PrimaryButton
             compact
             icon={inQueue ? ListX : ListPlus}

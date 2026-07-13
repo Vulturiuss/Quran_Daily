@@ -1,13 +1,16 @@
 import { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
   ArrowRight,
   Award,
   BookOpen,
   CheckCircle2,
+  ChevronRight,
   Clock3,
+  Flame,
   GraduationCap,
+  Map as MapIcon,
   Play,
   RotateCcw,
   Settings2,
@@ -44,7 +47,7 @@ import {
 } from '@/store/useQuranStore';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { addDays, dateKey } from '@/utils/date';
-import { getLevelProgress } from '@/utils/gamification';
+import { getLevelProgress, pendingStreakRepair } from '@/utils/gamification';
 import { buildSessionPreview } from '@/utils/sessionPlan';
 
 export default function HomeScreen() {
@@ -67,8 +70,15 @@ export default function HomeScreen() {
     0,
   );
   const sessionPlan = buildSessionPreview(progress, profile, new Date());
+  // Replaying the recent verses and reciting a finished surah whole are work.
+  // Counting only reviews and new verses had the home screen announce "all caught
+  // up, come back tomorrow" while the sabqi and the final check waited in another
+  // tab — the two things the whole method now rests on.
   const sessionIsEmpty =
-    sessionPlan.reviewCount === 0 && sessionPlan.versesCount === 0;
+    sessionPlan.reviewCount === 0 &&
+    sessionPlan.versesCount === 0 &&
+    sessionPlan.sabqiCount === 0 &&
+    sessionPlan.awaitingVerification === undefined;
   const reviewNames = sessionPlan.reviewSurahNumbers
     .map((number) => getSurah(number)?.nameTranslit)
     .filter(Boolean)
@@ -89,6 +99,21 @@ export default function HomeScreen() {
   const progressValue = learningProgress
     ? learningProgress.versesLearned / learningProgress.totalVerses
     : 0;
+
+  // A streak broken after 47 days is the classic uninstall. A freeze is already
+  // holding it up — silently — so the user learns nothing and leaves. The freeze
+  // buys a day; only this message tells them what to do with it.
+  const lastCompletedDate = useMemo(
+    () =>
+      history.reduce<string | undefined>(
+        (latest, record) => (!latest || record.date > latest ? record.date : latest),
+        undefined,
+      ),
+    [history],
+  );
+  const streakRepair = pendingStreakRepair(stats, lastCompletedDate);
+  const showStreakRepair = Boolean(streakRepair?.canRepair) && !completedToday;
+
 
   function startSession(isBonus = false) {
     // Never write on unresolved capabilities: the session would be stamped with
@@ -118,6 +143,35 @@ export default function HomeScreen() {
           onPress={() => router.push('/settings')}
         />
       </View>
+
+      {showStreakRepair && streakRepair ? (
+        <FadeInView>
+          <Card style={styles.repairCard}>
+            <View style={styles.repairTop}>
+              <View style={styles.repairIcon}>
+                <Flame color={colors.gold} fill={colors.gold} size={22} />
+              </View>
+              <View style={styles.repairCopy}>
+                <Eyebrow>Ta série t’attend</Eyebrow>
+                <Text style={styles.repairTitle}>
+                  Ta série de {streakRepair.streakAtRisk} jour
+                  {streakRepair.streakAtRisk > 1 ? 's' : ''} est en danger.
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.repairText}>
+              Tu as manqué hier. Fais ta session maintenant et elle est sauvée — rien
+              de ce que tu as construit n’est perdu.
+            </Text>
+            <PrimaryButton
+              icon={Flame}
+              label="Sauver ma série"
+              loading={!access.resolved}
+              onPress={() => startSession(false)}
+            />
+          </Card>
+        </FadeInView>
+      ) : null}
 
       <StreakBanner
         current={stats.currentStreak}
@@ -273,6 +327,31 @@ export default function HomeScreen() {
         </>
       ) : null}
 
+      {/* The map is free on purpose: it is the thing that is not a score, so it
+          cannot be lost — and nobody uninstalls an app holding months of their
+          spiritual life made visible. */}
+      <SectionHeader title="Ton parcours" />
+      <Pressable
+        accessibilityLabel={`Ma carte du Coran. ${totalVersesLearned} versets mémorisés, ${knownCount} sourates connues.`}
+        accessibilityRole="button"
+        onPress={() => router.push('/map')}
+        style={({ pressed }) => pressed && styles.mapPressed}
+      >
+        <Card gradient style={styles.mapCard}>
+          <View style={styles.mapIcon}>
+            <MapIcon color={colors.gold} size={24} />
+          </View>
+          <View style={styles.mapCopy}>
+            <Text style={styles.mapTitle}>Ma carte du Coran</Text>
+            <Text style={styles.mapText}>
+              {totalVersesLearned} verset{totalVersesLearned > 1 ? 's' : ''} · {knownCount}{' '}
+              sourate{knownCount > 1 ? 's' : ''} connue{knownCount > 1 ? 's' : ''} sur 114
+            </Text>
+          </View>
+          <ChevronRight color={colors.textFaint} size={20} />
+        </Card>
+      </Pressable>
+
       <FadeInView delay={80}>
         <SectionHeader title="Ton élan" />
         <MetricStrip
@@ -322,6 +401,43 @@ function createStyles(colors: Palette) {
     fontFamily: typography.extraBold,
     fontSize: 27,
     letterSpacing: -0.7,
+  },
+  repairCard: {
+    backgroundColor: withAlpha(colors.gold, 0.1),
+    borderColor: colors.gold,
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  repairTop: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  repairIcon: {
+    alignItems: 'center',
+    backgroundColor: withAlpha(colors.gold, 0.14),
+    borderColor: colors.gold,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    height: 46,
+    justifyContent: 'center',
+    width: 46,
+  },
+  repairCopy: {
+    flex: 1,
+  },
+  repairTitle: {
+    color: colors.text,
+    fontFamily: typography.extraBold,
+    fontSize: 19,
+    letterSpacing: -0.4,
+    marginTop: 2,
+  },
+  repairText: {
+    color: colors.textMuted,
+    fontFamily: typography.regular,
+    fontSize: 13,
+    lineHeight: 20,
   },
   sessionCard: {
     minHeight: 320,
@@ -464,6 +580,37 @@ function createStyles(colors: Palette) {
     color: colors.gold,
     fontFamily: typography.bold,
     fontSize: 13,
+  },
+  mapPressed: {
+    opacity: 0.76,
+  },
+  mapCard: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    padding: spacing.md,
+  },
+  mapIcon: {
+    alignItems: 'center',
+    backgroundColor: withAlpha(colors.gold, 0.12),
+    borderRadius: radius.md,
+    height: 48,
+    justifyContent: 'center',
+    marginRight: spacing.md,
+    width: 48,
+  },
+  mapCopy: {
+    flex: 1,
+  },
+  mapTitle: {
+    color: colors.text,
+    fontFamily: typography.extraBold,
+    fontSize: 16,
+  },
+  mapText: {
+    color: colors.textMuted,
+    fontFamily: typography.regular,
+    fontSize: 12,
+    marginTop: 2,
   },
   learningCard: {
     padding: spacing.md,

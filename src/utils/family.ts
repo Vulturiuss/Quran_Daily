@@ -116,6 +116,7 @@ export function normalizeFamilyMembers(
           input.todayCompleted === true ||
           todaySessionCount > 0 ||
           Boolean(todayRecord),
+        todayMinutes: numberValue(input.todayMinutes),
         todayReviews:
           numberValue(input.todayReviews) ||
           numberValue(todayRecord?.surahsReviewed),

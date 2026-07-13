@@ -110,6 +110,54 @@ export function reconcileMissedStreak(
   };
 }
 
+export interface StreakRepair {
+  /** The day that was missed (yesterday). */
+  missedDate: string;
+  /** The streak that hangs on today's session. */
+  streakAtRisk: number;
+  /** Whether a freeze covers — or can still cover — the missed day. */
+  canRepair: boolean;
+}
+
+/**
+ * The repair moment.
+ *
+ * A broken streak of 47 days is the classic uninstall: the user opens the app,
+ * sees the counter back at zero, and concludes that months of work were for
+ * nothing. `reconcileMissedStreak` already spends a freeze to hold the streak up
+ * — but it does it silently, so the one thing that could bring the user back
+ * (knowing that today's session still saves everything) is never said.
+ *
+ * This is the pure read of that situation: exactly one day missed, a streak still
+ * standing, and a freeze holding it (or one still available to hold it). The home
+ * screen turns it into an invitation rather than a loss.
+ */
+export function pendingStreakRepair(
+  stats: UserStats,
+  lastCompletedDate: string | undefined,
+  now = new Date(),
+): StreakRepair | undefined {
+  if (!lastCompletedDate || stats.currentStreak <= 0) return undefined;
+
+  const today = dateKey(now);
+  const gap = dayDifference(lastCompletedDate, today);
+  // gap 0/1: nothing is at risk today. gap >= 3: more than one day is gone, and a
+  // single freeze cannot bridge it — promising a repair there would be a lie.
+  if (gap !== 2) return undefined;
+
+  const missedDate = previousDayKey(today);
+  // The freeze may already have been spent on that day (the store consumes it as
+  // soon as the app opens), in which case the streak is being held right now and
+  // today's session is what turns the reprieve into a saved streak.
+  const alreadyCovered = stats.lastFreezeUsedAt === missedDate;
+
+  return {
+    missedDate,
+    streakAtRisk: stats.currentStreak,
+    canRepair: alreadyCovered || stats.freezeCount > 0,
+  };
+}
+
 export function advanceDailyStreak(
   stats: UserStats,
   previousCompletedDate: string | undefined,

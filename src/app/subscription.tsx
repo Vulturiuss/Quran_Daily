@@ -47,8 +47,12 @@ import { getPackageFreeTrialLabel } from '@/utils/paywall';
 // free, without a daily cap. It sells capacity and comfort.
 const premiumBenefits = [
   `Apprends jusqu’à ${PREMIUM_MAX_LEARNING_SURAHS} sourates en parallèle`,
-  'Ta progression détaillée : graphiques, XP, niveaux et badges',
+  'Sache quels versets sont fragiles et quand ta sourate sera consolidée',
+  'Ton rythme réel, ton activité, tes niveaux et tes badges',
   'Tous les récitateurs',
+  // The wording matters: the Quran is not what is being sold. Streaming stays free
+  // and unlimited on every tier — Premium only removes the dependency on a network.
+  'Écoute hors ligne : plus besoin de réseau dans le métro',
   'Tous les thèmes de couleur',
   'Aucune publicité pendant ton parcours',
 ];

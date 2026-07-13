@@ -1,4 +1,5 @@
 import { UserProfile, UserSurahProgress } from '@/types';
+import { selectSabqi } from '@/utils/memorization';
 import { isDue, sortByReviewPriority } from '@/utils/srs';
 
 export interface SessionPreview {
@@ -8,6 +9,10 @@ export interface SessionPreview {
   reviewCount: number;
   reviewSurahNumbers: number[];
   versesCount: number;
+  /** Verses to replay before any new one. */
+  sabqiCount: number;
+  /** A surah fully seen, waiting to be recited whole. */
+  awaitingVerification?: number;
   learningSurah?: number;
 }
 
@@ -37,8 +42,19 @@ export function buildSessionPreview(
     ? Math.max(0, learning.totalVerses - learning.versesLearned)
     : 0;
   const versesCount = Math.min(profile.dailyGoalVerses, remainingVerses);
+  // The session replays the recent verses before teaching new ones, so the preview
+  // has to say so — it used to announce "2 verses" for a session that actually
+  // starts with up to eight, and the home screen declared the day done when the
+  // only thing left was the sabqi.
+  const sabqiCount = selectSabqi(learning, at).length;
+  // A surah that has been fully seen is waiting for its final recitation. It is
+  // neither `learning` nor `known`, so it fell through every count — the home
+  // screen said "all caught up" while the real work of the day sat in another tab.
+  const awaitingVerification = items.find((item) => item.status === 'verifying');
+
   const estimatedSeconds =
     selectedReviews.reduce((total, item) => total + item.totalVerses * 30, 0) +
+    sabqiCount * 25 +
     versesCount * 120;
 
   return {
@@ -54,6 +70,8 @@ export function buildSessionPreview(
     reviewCount: selectedReviews.length,
     reviewSurahNumbers: selectedReviews.map((item) => item.surahNumber),
     versesCount,
+    sabqiCount,
+    awaitingVerification: awaitingVerification?.surahNumber,
     learningSurah: learning?.surahNumber,
   };
 }
