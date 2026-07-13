@@ -53,8 +53,6 @@ const defaultProfile: UserProfile = {
   theme: 'teal',
   learningQueue: [],
   offlineAudioAuto: true,
-  // Only ever set by the user, and only during the season. See setRamadanGoal.
-  ramadanGoal: undefined,
 };
 
 const defaultSyncMeta: SyncMeta = {
@@ -78,30 +76,6 @@ function changedNow(previous?: SyncMeta): SyncMeta {
   };
 }
 
-/**
- * A Ramadan goal is only ever what the user chose. An empty or malformed one —
- * from an older device, a hand-edited snapshot — becomes no goal at all rather
- * than an objective of zero surahs the home screen would ask them to keep up with.
- */
-function normalizeRamadanGoal(
-  goal?: UserProfile['ramadanGoal'],
-): UserProfile['ramadanGoal'] {
-  if (!goal || !Array.isArray(goal.surahNumbers)) return undefined;
-
-  const surahNumbers = [...new Set(goal.surahNumbers)]
-    .filter((number) => Number.isInteger(number) && number >= 1 && number <= 114)
-    .sort((a, b) => a - b);
-  if (surahNumbers.length === 0) return undefined;
-
-  return {
-    surahNumbers,
-    startedAt:
-      typeof goal.startedAt === 'string' && goal.startedAt
-        ? goal.startedAt
-        : new Date().toISOString(),
-  };
-}
-
 function normalizeProfile(profile?: Partial<UserProfile>): UserProfile {
   return {
     ...defaultProfile,
@@ -111,7 +85,6 @@ function normalizeProfile(profile?: Partial<UserProfile>): UserProfile {
     // `undefined`, which reads as "off": the feature would be silently disabled
     // for every existing user.
     offlineAudioAuto: profile?.offlineAudioAuto ?? defaultProfile.offlineAudioAuto,
-    ramadanGoal: normalizeRamadanGoal(profile?.ramadanGoal),
   };
 }
 
@@ -183,9 +156,6 @@ export interface QuranState {
   enforceLearningLimit: (maxLearningSurahs: number) => void;
   markSurahKnown: (surahNumber: number) => void;
   markSurahForgotten: (surahNumber: number) => void;
-  /** The surahs the user set out to memorise this Ramadan. Their choice, always. */
-  setRamadanGoal: (surahNumbers: number[]) => void;
-  clearRamadanGoal: () => void;
   addToLearningQueue: (surahNumber: number) => void;
   removeFromLearningQueue: (surahNumber: number) => void;
   reorderLearningQueue: (surahNumber: number, direction: 'up' | 'down') => void;
@@ -418,30 +388,6 @@ export const useQuranStore = create<QuranState>()(
               ...state.progress,
               [surahNumber]: makeProgress(surahNumber, 'locked', updatedAt),
             },
-            syncMeta: changedNow(state.syncMeta),
-          };
-        }),
-
-      setRamadanGoal: (surahNumbers) =>
-        set((state) => {
-          const ramadanGoal = normalizeRamadanGoal({
-            surahNumbers,
-            startedAt: new Date().toISOString(),
-          });
-          if (!ramadanGoal) return state;
-          return {
-            profile: { ...state.profile, ramadanGoal },
-            syncMeta: changedNow(state.syncMeta),
-          };
-        }),
-
-      // Dropping the goal erases nothing: the verses learnt along the way stay
-      // learnt. An objective one can no longer keep must be possible to put down.
-      clearRamadanGoal: () =>
-        set((state) => {
-          if (!state.profile.ramadanGoal) return state;
-          return {
-            profile: { ...state.profile, ramadanGoal: undefined },
             syncMeta: changedNow(state.syncMeta),
           };
         }),
@@ -1069,10 +1015,6 @@ export const useQuranStore = create<QuranState>()(
       // was ours.
       // v9 adds `offlineAudioAuto`. It defaults to true — see normalizeProfile,
       // which is what the migration below runs the profile through.
-      // v10 adds `profile.ramadanGoal`. It stays absent for everyone who has not
-      // chosen one: normalizeProfile — which the migration below runs the profile
-      // through — turns a missing or malformed goal into no goal at all, never
-      // into an empty objective the home screen would then hold them to.
       version: 10,
       migrate: (persistedState, _version) => {
         const state = persistedState as Partial<QuranState>;

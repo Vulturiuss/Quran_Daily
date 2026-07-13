@@ -81,7 +81,6 @@ function ThemedStack() {
       <Stack.Screen name="library" />
       <Stack.Screen name="map" />
       <Stack.Screen name="privacy" />
-      <Stack.Screen name="ramadan" />
       <Stack.Screen name="subscription" />
       <Stack.Screen name="terms" />
       <Stack.Screen name="(tabs)" />

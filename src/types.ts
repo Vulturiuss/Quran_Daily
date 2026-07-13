@@ -63,15 +63,6 @@ export interface UserProfile {
    * the point of the feature is that nobody has to ask for it.
    */
   offlineAudioAuto: boolean;
-  /**
-   * What the user set out to memorise this Ramadan. Absent the rest of the year,
-   * and absent for anyone who did not ask for one — an objective nobody chose is
-   * not an objective, it is a debt.
-   */
-  ramadanGoal?: {
-    surahNumbers: number[];
-    startedAt: string;
-  };
 }
 
 export interface UserStats {

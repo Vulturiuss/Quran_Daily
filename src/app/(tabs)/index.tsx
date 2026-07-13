@@ -11,7 +11,6 @@ import {
   Flame,
   GraduationCap,
   Map as MapIcon,
-  MoonStar,
   Play,
   RotateCcw,
   Settings2,
@@ -49,17 +48,7 @@ import {
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { addDays, dateKey } from '@/utils/date';
 import { getLevelProgress, pendingStreakRepair } from '@/utils/gamification';
-import {
-  currentRamadan,
-  goalProgressMap,
-  ramadanProgress,
-} from '@/utils/ramadan';
 import { buildSessionPreview } from '@/utils/sessionPlan';
-
-/** "0,6 verset par jour" reads better than "0.6". */
-function formatPace(value: number) {
-  return value.toLocaleString('fr-FR', { maximumFractionDigits: 1 });
-}
 
 export default function HomeScreen() {
   const { colors } = useTheme();
@@ -125,19 +114,6 @@ export default function HomeScreen() {
   const streakRepair = pendingStreakRepair(stats, lastCompletedDate);
   const showStreakRepair = Boolean(streakRepair?.canRepair) && !completedToday;
 
-  // Ramadan: announced in the run-up, followed once it starts, invisible the rest
-  // of the year. `currentRamadan()` returns nothing outside the season, so nothing
-  // below renders — no goal is ever imposed, and none is ever nagged about.
-  const ramadan = useMemo(() => currentRamadan(), []);
-  const ramadanGoal = profile.ramadanGoal;
-  const ramadanStatus = useMemo(() => {
-    if (!ramadan || !ramadanGoal) return undefined;
-    return ramadanProgress(
-      ramadanGoal,
-      goalProgressMap(ramadanGoal.surahNumbers, progress),
-      ramadan,
-    );
-  }, [progress, ramadan, ramadanGoal]);
 
   function startSession(isBonus = false) {
     // Never write on unresolved capabilities: the session would be stamped with
@@ -308,100 +284,6 @@ export default function HomeScreen() {
           )}
         </OrnamentalCard>
       </FadeInView>
-
-      {ramadan && !ramadanStatus ? (
-        <FadeInView delay={60}>
-          <Card style={styles.ramadanCard}>
-            <View style={styles.ramadanTop}>
-              <View style={styles.ramadanIcon}>
-                <MoonStar color={colors.gold} size={22} />
-              </View>
-              <View style={styles.ramadanCopy}>
-                <Eyebrow>
-                  {ramadan.hasStarted
-                    ? `Ramadan · jour ${ramadan.dayNumber}`
-                    : 'Ramadan approche'}
-                </Eyebrow>
-                <Text style={styles.ramadanTitle}>
-                  {ramadan.hasStarted
-                    ? 'Il reste tout un mois devant toi.'
-                    : 'Un mois, et ce que tu veux en garder.'}
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.ramadanText}>
-              {ramadan.hasStarted
-                ? `Encore ${ramadan.daysRemaining} jour${ramadan.daysRemaining > 1 ? 's' : ''} pour porter quelque chose de précis. Choisis ce que tu veux emporter avec toi.`
-                : 'Choisis dès maintenant ce que tu aimerais mémoriser pendant ce mois. Un objectif clair, à ton rythme.'}
-            </Text>
-            <PrimaryButton
-              icon={MoonStar}
-              label="Me fixer un objectif"
-              onPress={() => router.push('/ramadan' as never)}
-            />
-          </Card>
-        </FadeInView>
-      ) : null}
-
-      {ramadan && ramadanStatus && ramadanGoal ? (
-        <FadeInView delay={60}>
-          <Pressable
-            accessibilityLabel="Mon objectif Ramadan"
-            accessibilityRole="button"
-            onPress={() => router.push('/ramadan' as never)}
-            style={({ pressed }) => pressed && styles.mapPressed}
-          >
-            <Card style={styles.ramadanCard}>
-              <View style={styles.ramadanTop}>
-                <View style={styles.ramadanIcon}>
-                  <MoonStar color={colors.gold} size={22} />
-                </View>
-                <View style={styles.ramadanCopy}>
-                  <Eyebrow>
-                    {ramadan.hasStarted
-                      ? `Ramadan · jour ${ramadan.dayNumber} sur ${ramadan.totalDays}`
-                      : 'Ramadan approche'}
-                  </Eyebrow>
-                  <Text style={styles.ramadanTitle}>Mon objectif</Text>
-                </View>
-                <Text style={styles.ramadanPercent}>
-                  {Math.round(ramadanStatus.progress * 100)}%
-                </Text>
-              </View>
-
-              <ProgressBar value={ramadanStatus.progress} />
-
-              <Text style={styles.ramadanText}>
-                {ramadanStatus.surahsDone}/{ramadanStatus.surahsTotal} sourate
-                {ramadanStatus.surahsTotal > 1 ? 's' : ''} ·{' '}
-                {ramadanStatus.versesLearned}/{ramadanStatus.versesTotal} versets
-              </Text>
-
-              {ramadanStatus.versesPerDayNeeded > 0 ? (
-                <Text style={styles.ramadanPace}>
-                  {formatPace(ramadanStatus.versesPerDayNeeded)} verset
-                  {ramadanStatus.versesPerDayNeeded > 1 ? 's' : ''} par jour pour y
-                  arriver.
-                </Text>
-              ) : (
-                <Text style={styles.ramadanPace}>
-                  Objectif atteint. Qu’Allah te l’accepte.
-                </Text>
-              )}
-
-              {/* Behind the pace is not a verdict. What is left is what is left,
-                  and the only thing worth saying is that it still fits. */}
-              {!ramadanStatus.onTrack ? (
-                <Text style={styles.ramadanEncouragement}>
-                  Il te reste {ramadan.daysRemaining} jour
-                  {ramadan.daysRemaining > 1 ? 's' : ''}, c’est jouable. Un verset
-                  aujourd’hui vaut mieux que dix promis pour demain.
-                </Text>
-              ) : null}
-            </Card>
-          </Pressable>
-        </FadeInView>
-      ) : null}
 
       {learningSurah && learningProgress ? (
         <>
@@ -698,58 +580,6 @@ function createStyles(colors: Palette) {
     color: colors.gold,
     fontFamily: typography.bold,
     fontSize: 13,
-  },
-  ramadanCard: {
-    borderColor: withAlpha(colors.gold, 0.34),
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  ramadanTop: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  ramadanIcon: {
-    alignItems: 'center',
-    backgroundColor: withAlpha(colors.gold, 0.12),
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    height: 46,
-    justifyContent: 'center',
-    width: 46,
-  },
-  ramadanCopy: {
-    flex: 1,
-  },
-  ramadanTitle: {
-    color: colors.text,
-    fontFamily: typography.extraBold,
-    fontSize: 18,
-    letterSpacing: -0.3,
-    marginTop: 2,
-  },
-  ramadanPercent: {
-    color: colors.gold,
-    fontFamily: typography.extraBold,
-    fontSize: 17,
-  },
-  ramadanText: {
-    color: colors.textMuted,
-    fontFamily: typography.regular,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  ramadanPace: {
-    color: colors.goldSoft,
-    fontFamily: typography.bold,
-    fontSize: 12,
-  },
-  ramadanEncouragement: {
-    color: colors.textMuted,
-    fontFamily: typography.medium,
-    fontSize: 12,
-    lineHeight: 18,
   },
   mapPressed: {
     opacity: 0.76,
