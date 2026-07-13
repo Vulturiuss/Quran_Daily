@@ -22,6 +22,7 @@ function snapshot(updatedAt: string): CloudSnapshot {
       showReviewTranslation: false,
       theme: 'teal',
       learningQueue: [],
+      offlineAudioAuto: true,
     },
     progress: {},
     stats: createDefaultStats(new Date('2026-06-14T12:00:00')),

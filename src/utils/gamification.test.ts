@@ -8,6 +8,7 @@ import {
   findUnlockedBadges,
   isPerfectReviewSession,
   normalizeStats,
+  pendingStreakRepair,
   reconcileMissedStreak,
   streakMilestoneXP,
 } from './gamification';
@@ -73,6 +74,67 @@ test('completing after a protected missed day advances the streak', () => {
 
   assert.equal(result.stats.currentStreak, 9);
   assert.equal(result.freezeUsed, true);
+});
+
+test('one missed day offers a repair the user can still act on', () => {
+  const now = new Date(2026, 5, 15, 12);
+  const stats = createDefaultStats(now);
+  stats.currentStreak = 47;
+
+  const repair = pendingStreakRepair(stats, '2026-06-13', now);
+
+  assert.deepEqual(repair, {
+    missedDate: '2026-06-14',
+    streakAtRisk: 47,
+    canRepair: true,
+  });
+});
+
+test('the repair stays offered once the freeze has been consumed for that day', () => {
+  // The store spends the freeze silently as soon as the app opens, so by the time
+  // the home screen renders the balance is already 0. If that hid the message, the
+  // user would never learn that today's session is what saves their streak.
+  const now = new Date(2026, 5, 15, 12);
+  const stats = createDefaultStats(now);
+  stats.currentStreak = 47;
+  stats.freezeCount = 0;
+  stats.lastFreezeUsedAt = '2026-06-14';
+
+  const repair = pendingStreakRepair(stats, '2026-06-13', now);
+
+  assert.equal(repair?.canRepair, true);
+  assert.equal(repair?.streakAtRisk, 47);
+});
+
+test('without any freeze left the missed day cannot be repaired', () => {
+  const now = new Date(2026, 5, 15, 12);
+  const stats = createDefaultStats(now);
+  stats.currentStreak = 47;
+  stats.freezeCount = 0;
+
+  const repair = pendingStreakRepair(stats, '2026-06-13', now);
+
+  assert.equal(repair?.canRepair, false);
+});
+
+test('nothing to repair when no day was missed, or when too many were', () => {
+  const now = new Date(2026, 5, 15, 12);
+  const stats = createDefaultStats(now);
+  stats.currentStreak = 47;
+
+  // Yesterday's session was done: today is simply the next day.
+  assert.equal(pendingStreakRepair(stats, '2026-06-14', now), undefined);
+  // Today is already done.
+  assert.equal(pendingStreakRepair(stats, '2026-06-15', now), undefined);
+  // Three days gone: a single freeze cannot bridge that, and promising it would
+  // be a lie the next screen would have to take back.
+  assert.equal(pendingStreakRepair(stats, '2026-06-11', now), undefined);
+  // No history, no streak: nothing is at risk.
+  assert.equal(pendingStreakRepair(stats, undefined, now), undefined);
+  assert.equal(
+    pendingStreakRepair({ ...stats, currentStreak: 0 }, '2026-06-13', now),
+    undefined,
+  );
 });
 
 test('streak milestone XP follows the specification', () => {

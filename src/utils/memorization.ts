@@ -170,3 +170,30 @@ export function verificationOutcome(failedVerses: number[]) {
     ? ({ status: 'known' as const, weakVerses: [] })
     : ({ status: 'learning' as const, weakVerses: [...failedVerses].sort((a, b) => a - b) });
 }
+
+/**
+ * Which verses the next final recitation covers.
+ *
+ * The first pass is the whole surah — that is the point. But a *re-take* only
+ * covers what actually failed. Making someone recite all 286 verses of Al-Baqara
+ * again because they hesitated on two is not rigour, it is a reason to uninstall:
+ * the third time they "fail", they do not conclude that they are progressing,
+ * they conclude that they are failing at the Quran. Rigour without mercy is
+ * churn.
+ *
+ * The rest of the surah already proved itself; the sabqi keeps it warm.
+ */
+export function verificationQueue(progress: UserSurahProgress): number[] {
+  const weak = progress.weakVerses ?? [];
+  if (weak.length > 0) {
+    return [...weak].sort((a, b) => a - b);
+  }
+  return Array.from({ length: progress.totalVerses }, (_, index) => index + 1);
+}
+
+/** How solidly a surah is held: 1 when nothing is weak. */
+export function surahSolidity(progress: UserSurahProgress) {
+  if (progress.totalVerses === 0) return 0;
+  const weak = (progress.weakVerses ?? []).length;
+  return Math.max(0, Math.min(1, 1 - weak / progress.totalVerses));
+}

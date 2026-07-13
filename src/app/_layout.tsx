@@ -22,6 +22,7 @@ import { AudioProvider } from '@/providers/AudioProvider';
 import { CloudProvider } from '@/providers/CloudProvider';
 import { FamilyProvider } from '@/providers/FamilyProvider';
 import { GamificationProvider } from '@/providers/GamificationProvider';
+import { OfflineAudioProvider } from '@/providers/OfflineAudioProvider';
 import { ReminderProvider } from '@/providers/ReminderProvider';
 import { SessionUploadProvider } from '@/providers/SessionUploadProvider';
 import { SubscriptionProvider } from '@/providers/SubscriptionProvider';
@@ -78,7 +79,9 @@ function ThemedStack() {
       <Stack.Screen name="family/index" />
       <Stack.Screen name="family/[userId]" />
       <Stack.Screen name="library" />
+      <Stack.Screen name="map" />
       <Stack.Screen name="privacy" />
+      <Stack.Screen name="ramadan" />
       <Stack.Screen name="subscription" />
       <Stack.Screen name="terms" />
       <Stack.Screen name="(tabs)" />
@@ -115,6 +118,9 @@ export default function RootLayout() {
           <ReminderProvider>
             <SubscriptionProvider>
               <SessionUploadProvider>
+              {/* Inside SubscriptionProvider: offline audio is a Premium feature,
+                  so it needs the tier before it downloads anything. */}
+              <OfflineAudioProvider>
               <GamificationProvider>
                 {/* ThemeProvider sits below SubscriptionProvider: themes are a
                     Premium feature, so it needs to know the tier to fall back to
@@ -125,6 +131,7 @@ export default function RootLayout() {
                   </AudioProvider>
                 </ThemeProvider>
               </GamificationProvider>
+              </OfflineAudioProvider>
               </SessionUploadProvider>
             </SubscriptionProvider>
           </ReminderProvider>

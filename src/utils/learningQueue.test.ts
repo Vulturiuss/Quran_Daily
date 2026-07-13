@@ -16,6 +16,7 @@ const profile: UserProfile = {
   showReviewTranslation: false,
   theme: 'teal',
   learningQueue: [],
+  offlineAudioAuto: true,
 };
 
 function progressOf(partial: Partial<UserSurahProgress> & { surahNumber: number }) {

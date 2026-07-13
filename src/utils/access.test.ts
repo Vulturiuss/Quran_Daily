@@ -24,6 +24,11 @@ test('the free tier keeps the whole Quran, and pays for nothing to learn or revi
   assert.equal(premium.allReciters, true);
   assert.equal(free.allThemes, false);
   assert.equal(premium.allThemes, true);
+
+  // Offline audio gates bandwidth, not the Quran: streaming stays free and
+  // unlimited, and the text is offline for everyone.
+  assert.equal(free.offlineAudio, false);
+  assert.equal(premium.offlineAudio, true);
 });
 
 test('a free user is pinned to the default reciter and theme', () => {

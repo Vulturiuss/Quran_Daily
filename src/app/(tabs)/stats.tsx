@@ -1,13 +1,18 @@
 import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
   Award,
   BookOpen,
+  CalendarCheck,
+  ChevronRight,
   Clock3,
   Flame,
+  Gauge,
   GraduationCap,
+  HeartCrack,
   Medal,
+  ShieldCheck,
   Star,
   Trophy,
 } from 'lucide-react-native';
@@ -26,11 +31,14 @@ import {
   SectionHeader,
 } from '@/components/ui';
 import { badgeById, badges } from '@/data/badges';
+import { getSurah } from '@/data/surahs';
 import { useAccess } from '@/hooks/useAccess';
 import { useTheme } from '@/providers/ThemeProvider';
 import { selectKnownCount, useQuranStore } from '@/store/useQuranStore';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
+import { formatShortDate } from '@/utils/date';
 import { getLevelProgress } from '@/utils/gamification';
+import { buildInsight } from '@/utils/insight';
 import {
   ActivityRange,
   buildActivitySeries,
@@ -56,6 +64,16 @@ export default function StatsScreen() {
     (total, item) => total + item.versesLearned,
     0,
   );
+  // Computed for everyone, including free users: the paywall only shows the
+  // count. "You have 12 fragile verses, Premium tells you which ones" sells far
+  // better than "unlock your statistics" — the teaser is true, and it is theirs.
+  const insight = useMemo(
+    () => buildInsight(progress, history),
+    [history, progress],
+  );
+  const learningSurah = getSurah(
+    Object.values(progress).find((item) => item.status === 'learning')?.surahNumber,
+  );
   const activity = buildActivitySeries(history, range);
   const activitySummary = summarizeActivity(activity);
   const max = Math.max(50, ...activity.map((point) => point.xp));
@@ -78,10 +96,27 @@ export default function StatsScreen() {
           />
           <Card gradient style={styles.premiumGate}>
             <Award color={colors.gold} size={34} />
-            <Text style={styles.premiumTitle}>Débloque toutes tes statistiques</Text>
-            <Text style={styles.premiumText}>
-              Graphiques, XP, niveaux, temps de récitation et collection complète de badges.
-            </Text>
+            {insight.weakVerseCount > 0 ? (
+              <>
+                <Text style={styles.premiumTitle}>
+                  Tu as {insight.weakVerseCount} verset
+                  {insight.weakVerseCount > 1 ? 's' : ''} fragile
+                  {insight.weakVerseCount > 1 ? 's' : ''}.
+                </Text>
+                <Text style={styles.premiumText}>
+                  Premium te dit lesquels, dans quelles sourates, et quand ta sourate
+                  sera consolidée à ton rythme actuel.
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.premiumTitle}>Sais où en est ta mémoire</Text>
+                <Text style={styles.premiumText}>
+                  Premium te dit quels versets sont fragiles, à quelle vitesse tu
+                  consolides, et quand ta sourate sera entièrement vue.
+                </Text>
+              </>
+            )}
             <PrimaryButton
               label="Découvrir Premium"
               onPress={() => router.push('/subscription')}
@@ -139,6 +174,94 @@ export default function StatsScreen() {
                 : 'Niveau maximal atteint'}
             </Text>
           </Card>
+
+          {/* What the app knows about your memory, and nobody else does. */}
+          <SectionHeader title="Ta mémorisation" />
+          <Card style={styles.insightCard}>
+            <View style={styles.insightRow}>
+              <View style={styles.insightIcon}>
+                <Gauge color={colors.gold} size={20} />
+              </View>
+              <View style={styles.insightCopy}>
+                <Text style={styles.insightValue}>
+                  {insight.pace} verset{insight.pace > 1 ? 's' : ''} par jour
+                </Text>
+                <Text style={styles.insightLabel}>
+                  {insight.minutesPerActiveDay > 0
+                    ? `${insight.minutesPerActiveDay} min par jour actif`
+                    : 'Ton rythme apparaîtra après quelques sessions.'}
+                </Text>
+              </View>
+            </View>
+
+            {insight.projectedCompletion && learningSurah ? (
+              <View style={styles.insightRow}>
+                <View style={styles.insightIcon}>
+                  <CalendarCheck color={colors.gold} size={20} />
+                </View>
+                <View style={styles.insightCopy}>
+                  <Text style={styles.insightValue}>
+                    {learningSurah.nameTranslit} sera entièrement vue le{' '}
+                    {formatShortDate(insight.projectedCompletion)}
+                  </Text>
+                  <Text style={styles.insightLabel}>À ton rythme des 14 derniers jours.</Text>
+                </View>
+              </View>
+            ) : null}
+          </Card>
+
+          <SectionHeader title="Versets fragiles" />
+          {insight.fragile.length === 0 ? (
+            <Card style={styles.solidCard}>
+              <ShieldCheck color={colors.success} size={22} />
+              <View style={styles.insightCopy}>
+                <Text style={styles.insightValue}>Rien de fragile en ce moment.</Text>
+                <Text style={styles.insightLabel}>
+                  Tout ce que tu as mémorisé tient. Continue simplement.
+                </Text>
+              </View>
+            </Card>
+          ) : (
+            <View style={styles.fragileList}>
+              {insight.fragile.map((item) => {
+                const surah = getSurah(item.surahNumber);
+                const solidity = Math.round(item.solidity * 100);
+                return (
+                  <Pressable
+                    accessibilityLabel={`${surah?.nameTranslit ?? `Sourate ${item.surahNumber}`}, tient à ${solidity}%, ${item.weakVerses.length} versets à raffermir`}
+                    accessibilityRole="button"
+                    key={item.surahNumber}
+                    onPress={() => router.push(`/surah/${item.surahNumber}`)}
+                    style={({ pressed }) => pressed && styles.fragilePressed}
+                  >
+                    <Card style={styles.fragileCard}>
+                      <View style={styles.fragileIcon}>
+                        <HeartCrack color={colors.warning} size={19} />
+                      </View>
+                      <View style={styles.insightCopy}>
+                        <Text style={styles.insightValue}>
+                          {surah?.nameTranslit ?? `Sourate ${item.surahNumber}`} · tient à{' '}
+                          {solidity} %
+                        </Text>
+                        <Text style={styles.insightLabel}>
+                          {item.weakVerses.length} verset
+                          {item.weakVerses.length > 1 ? 's' : ''} à raffermir
+                        </Text>
+                        <View style={styles.fragileBar}>
+                          <ProgressBar
+                            color={colors.warning}
+                            height={5}
+                            value={item.solidity}
+                          />
+                        </View>
+                      </View>
+                      <ChevronRight color={colors.textFaint} size={18} />
+                    </Card>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
 
           <SectionHeader title="Régularité" />
           <MetricStrip
@@ -347,6 +470,67 @@ function createStyles(colors: Palette) {
     fontSize: 11,
     marginTop: spacing.sm,
     textAlign: 'right',
+  },
+  insightCard: {
+    gap: spacing.md,
+    padding: spacing.md,
+  },
+  insightRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  insightIcon: {
+    alignItems: 'center',
+    backgroundColor: withAlpha(colors.gold, 0.1),
+    borderRadius: radius.md,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  insightCopy: {
+    flex: 1,
+  },
+  insightValue: {
+    color: colors.text,
+    fontFamily: typography.bold,
+    fontSize: 14,
+  },
+  insightLabel: {
+    color: colors.textMuted,
+    fontFamily: typography.regular,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  solidCard: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+    padding: spacing.md,
+  },
+  fragileList: {
+    gap: spacing.sm,
+  },
+  fragilePressed: {
+    opacity: 0.76,
+  },
+  fragileCard: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+    padding: spacing.md,
+  },
+  fragileIcon: {
+    alignItems: 'center',
+    backgroundColor: withAlpha(colors.warning, 0.12),
+    borderRadius: radius.md,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  fragileBar: {
+    marginTop: spacing.xs,
   },
   rangePills: {
     flexDirection: 'row',

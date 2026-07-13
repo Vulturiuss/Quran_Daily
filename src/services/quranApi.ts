@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { localVerseUri } from '@/services/offlineAudio';
 import { Verse } from '@/types';
 
 const API_BASE = 'https://api.quran.com/api/v4';
@@ -98,11 +99,28 @@ async function fetchAudioMap(reciterId: ReciterId, surahNumber: number) {
   return request;
 }
 
-export async function getVerseAudioUrl(verse: Verse, reciterId: string) {
+/**
+ * The remote URL for a verse. Kept separate from `getVerseAudioUrl` so the
+ * offline downloader can reach the network on purpose without recursing into the
+ * local-file lookup below.
+ */
+export async function getRemoteVerseAudioUrl(verse: Verse, reciterId: string) {
   if (reciterId === 'mishary' || !(reciterId in reciters)) {
     return verse.audioUrl;
   }
 
   const audioMap = await fetchAudioMap(reciterId as ReciterId, verse.surahNumber);
   return audioMap[verse.verseKey] ?? verse.audioUrl;
+}
+
+/**
+ * Everything that plays a verse goes through here, which is why offline needed
+ * one hook and not a rewrite: a downloaded file is returned in place of the URL,
+ * and `player.replace(uri)` neither knows nor cares.
+ */
+export async function getVerseAudioUrl(verse: Verse, reciterId: string) {
+  const local = localVerseUri(reciterId, verse.surahNumber, verse.verseNumber);
+  if (local) return local;
+
+  return getRemoteVerseAudioUrl(verse, reciterId);
 }

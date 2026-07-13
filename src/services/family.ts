@@ -105,3 +105,31 @@ export async function deleteFamily(): Promise<FamilyResult> {
   const { error } = await supabase.rpc('delete_family_space');
   return error ? { error: message(error) } : {};
 }
+
+/**
+ * `rate_limited` and `no_device` are outcomes, not failures: a reminder that
+ * cannot be sent right now is something to say gently, not an error to report.
+ */
+export type NudgeOutcome = 'sent' | 'rate_limited' | 'no_device';
+
+/**
+ * Asks the server to send a child the day's reminder. The parent never handles a
+ * push token: the Edge Function calls `request_family_nudge`, which checks the
+ * family, the rate limit, and only then sends.
+ */
+export async function sendFamilyNudge(
+  childUserId: string,
+): Promise<FamilyResult<NudgeOutcome>> {
+  if (!supabase) return { error: 'Supabase n’est pas configuré.' };
+
+  const { data, error } = await supabase.functions.invoke('send-family-nudge', {
+    body: { childUserId },
+  });
+  if (error) return { error: message(error) };
+
+  const payload = data as { sent?: boolean; reason?: string } | null;
+  if (payload?.sent) return { data: 'sent' };
+  if (payload?.reason === 'rate_limited') return { data: 'rate_limited' };
+  if (payload?.reason === 'no_device') return { data: 'no_device' };
+  return { error: 'Le rappel n’a pas pu être envoyé.' };
+}

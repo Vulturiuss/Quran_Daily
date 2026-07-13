@@ -1317,3 +1317,144 @@ $$;
 revoke all on function public.verified_longest_streak(uuid) from public;
 revoke all on function public.verified_longest_streak(uuid) from anon;
 revoke all on function public.verified_longest_streak(uuid) from authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Parent -> child reminders
+-- ---------------------------------------------------------------------------
+
+-- One row per device. A user can have several; a device can be reassigned to
+-- another user (a shared family tablet), so the token is the key, not the user.
+create table if not exists public.push_tokens (
+  token text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  platform text not null check (platform in ('ios', 'android', 'web')),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists push_tokens_user_id_idx on public.push_tokens(user_id);
+
+alter table public.push_tokens enable row level security;
+
+-- A user manages only their own tokens, and can never read anyone else's: a push
+-- token is enough to send a notification, so it is a capability, not a datum.
+drop policy if exists "push_tokens_own_rows" on public.push_tokens;
+create policy "push_tokens_own_rows" on public.push_tokens
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+revoke all on public.push_tokens from anon;
+revoke all on public.push_tokens from authenticated;
+grant select, insert, update, delete on public.push_tokens to authenticated;
+
+-- Nudges sent, so a child cannot be pestered every thirty seconds.
+create table if not exists public.family_nudges (
+  id uuid primary key default gen_random_uuid(),
+  parent_id uuid not null references auth.users(id) on delete cascade,
+  child_id uuid not null references auth.users(id) on delete cascade,
+  sent_at timestamptz not null default now()
+);
+
+create index if not exists family_nudges_child_idx
+  on public.family_nudges(child_id, sent_at desc);
+
+alter table public.family_nudges enable row level security;
+drop policy if exists "family_nudges_select_own" on public.family_nudges;
+create policy "family_nudges_select_own" on public.family_nudges
+  for select using (auth.uid() = parent_id or auth.uid() = child_id);
+revoke all on public.family_nudges from anon;
+revoke all on public.family_nudges from authenticated;
+grant select on public.family_nudges to authenticated;
+
+/*
+ * A parent asks the server to remind their child.
+ *
+ * The parent never sees the child's push token — that would be a capability to
+ * notify them from anywhere, forever. They name the child; the server checks that
+ * they really are a parent in the same family with an active subscription, checks
+ * that the child has not already been nudged in the last few hours, records the
+ * nudge, and returns the tokens for the Edge Function to send to.
+ *
+ * The rate limit is not a technicality. A reminder that can be fired at will
+ * stops being a reminder and becomes nagging, and an app that lets a parent nag a
+ * child about the Quran is an app the child will come to resent.
+ */
+create or replace function public.request_family_nudge(child_user_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  parent_family_id uuid;
+  recent_count integer;
+  tokens jsonb;
+  child_name text;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select member.family_id
+  into parent_family_id
+  from public.family_members member
+  where member.user_id = auth.uid()
+    and member.role = 'parent'
+    and public.family_owner_has_access(member.family_id);
+
+  if parent_family_id is null then
+    raise exception 'Un espace Famille actif est nécessaire.';
+  end if;
+
+  if not exists (
+    select 1
+    from public.family_members member
+    where member.family_id = parent_family_id
+      and member.user_id = request_family_nudge.child_user_id
+      and member.role = 'child'
+  ) then
+    raise exception 'Cet enfant ne fait pas partie de ta famille.';
+  end if;
+
+  select count(*)
+  into recent_count
+  from public.family_nudges nudge
+  where nudge.child_id = request_family_nudge.child_user_id
+    and nudge.sent_at > now() - interval '6 hours';
+
+  if recent_count >= 1 then
+    return jsonb_build_object(
+      'sent', false,
+      'reason', 'rate_limited'
+    );
+  end if;
+
+  select coalesce(
+    jsonb_agg(jsonb_build_object('token', token.token, 'platform', token.platform)),
+    '[]'::jsonb
+  )
+  into tokens
+  from public.push_tokens token
+  where token.user_id = request_family_nudge.child_user_id;
+
+  if jsonb_array_length(tokens) = 0 then
+    return jsonb_build_object('sent', false, 'reason', 'no_device');
+  end if;
+
+  select profile.display_name
+  into child_name
+  from public.profiles profile
+  where profile.id = request_family_nudge.child_user_id;
+
+  insert into public.family_nudges (parent_id, child_id)
+  values (auth.uid(), request_family_nudge.child_user_id);
+
+  return jsonb_build_object(
+    'sent', true,
+    'tokens', tokens,
+    'childName', coalesce(child_name, 'ton enfant')
+  );
+end;
+$$;
+
+revoke all on function public.request_family_nudge(uuid) from public;
+revoke all on function public.request_family_nudge(uuid) from anon;
+grant execute on function public.request_family_nudge(uuid) to authenticated;

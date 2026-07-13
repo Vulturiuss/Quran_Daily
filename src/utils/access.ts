@@ -29,6 +29,12 @@ export interface Capabilities {
   allThemes: boolean;
   /** See the Progress tab: charts, history and badges. */
   stats: boolean;
+  /**
+   * Keep the recitation on the phone. This gates *bandwidth*, never the text:
+   * streaming stays free and unlimited on every tier, and the 114 surahs are read
+   * offline by anyone. What Premium buys is not depending on the network.
+   */
+  offlineAudio: boolean;
   /** Monthly streak freezes. */
   freezeAllowance: number;
 }
@@ -40,6 +46,7 @@ export function capabilities(hasFullAccess: boolean): Capabilities {
         allReciters: true,
         allThemes: true,
         stats: true,
+        offlineAudio: true,
         freezeAllowance: PREMIUM_FREEZE_ALLOWANCE,
       }
     : {
@@ -47,6 +54,7 @@ export function capabilities(hasFullAccess: boolean): Capabilities {
         allReciters: false,
         allThemes: false,
         stats: false,
+        offlineAudio: false,
         freezeAllowance: FREE_FREEZE_ALLOWANCE,
       };
 }

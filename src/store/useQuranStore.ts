@@ -31,6 +31,7 @@ import { healLearningState } from '@/utils/learningQueue';
 import {
   selectSabqi,
   verificationOutcome,
+  verificationQueue,
   verseGrade,
 } from '@/utils/memorization';
 import {
@@ -51,6 +52,9 @@ const defaultProfile: UserProfile = {
   showReviewTranslation: false,
   theme: 'teal',
   learningQueue: [],
+  offlineAudioAuto: true,
+  // Only ever set by the user, and only during the season. See setRamadanGoal.
+  ramadanGoal: undefined,
 };
 
 const defaultSyncMeta: SyncMeta = {
@@ -74,10 +78,40 @@ function changedNow(previous?: SyncMeta): SyncMeta {
   };
 }
 
+/**
+ * A Ramadan goal is only ever what the user chose. An empty or malformed one —
+ * from an older device, a hand-edited snapshot — becomes no goal at all rather
+ * than an objective of zero surahs the home screen would ask them to keep up with.
+ */
+function normalizeRamadanGoal(
+  goal?: UserProfile['ramadanGoal'],
+): UserProfile['ramadanGoal'] {
+  if (!goal || !Array.isArray(goal.surahNumbers)) return undefined;
+
+  const surahNumbers = [...new Set(goal.surahNumbers)]
+    .filter((number) => Number.isInteger(number) && number >= 1 && number <= 114)
+    .sort((a, b) => a - b);
+  if (surahNumbers.length === 0) return undefined;
+
+  return {
+    surahNumbers,
+    startedAt:
+      typeof goal.startedAt === 'string' && goal.startedAt
+        ? goal.startedAt
+        : new Date().toISOString(),
+  };
+}
+
 function normalizeProfile(profile?: Partial<UserProfile>): UserProfile {
   return {
     ...defaultProfile,
     ...profile,
+    // A profile stored before offline audio existed — or a cloud snapshot written
+    // by an older device — carries no flag at all. Spreading it as-is would leave
+    // `undefined`, which reads as "off": the feature would be silently disabled
+    // for every existing user.
+    offlineAudioAuto: profile?.offlineAudioAuto ?? defaultProfile.offlineAudioAuto,
+    ramadanGoal: normalizeRamadanGoal(profile?.ramadanGoal),
   };
 }
 
@@ -149,6 +183,9 @@ export interface QuranState {
   enforceLearningLimit: (maxLearningSurahs: number) => void;
   markSurahKnown: (surahNumber: number) => void;
   markSurahForgotten: (surahNumber: number) => void;
+  /** The surahs the user set out to memorise this Ramadan. Their choice, always. */
+  setRamadanGoal: (surahNumbers: number[]) => void;
+  clearRamadanGoal: () => void;
   addToLearningQueue: (surahNumber: number) => void;
   removeFromLearningQueue: (surahNumber: number) => void;
   reorderLearningQueue: (surahNumber: number, direction: 'up' | 'down') => void;
@@ -385,6 +422,30 @@ export const useQuranStore = create<QuranState>()(
           };
         }),
 
+      setRamadanGoal: (surahNumbers) =>
+        set((state) => {
+          const ramadanGoal = normalizeRamadanGoal({
+            surahNumbers,
+            startedAt: new Date().toISOString(),
+          });
+          if (!ramadanGoal) return state;
+          return {
+            profile: { ...state.profile, ramadanGoal },
+            syncMeta: changedNow(state.syncMeta),
+          };
+        }),
+
+      // Dropping the goal erases nothing: the verses learnt along the way stay
+      // learnt. An objective one can no longer keep must be possible to put down.
+      clearRamadanGoal: () =>
+        set((state) => {
+          if (!state.profile.ramadanGoal) return state;
+          return {
+            profile: { ...state.profile, ramadanGoal: undefined },
+            syncMeta: changedNow(state.syncMeta),
+          };
+        }),
+
       addToLearningQueue: (surahNumber) =>
         set((state) => {
           if (state.profile.learningQueue.includes(surahNumber)) return state;
@@ -586,32 +647,56 @@ export const useQuranStore = create<QuranState>()(
         }),
 
       startVerification: (surahNumber) =>
-        set(() => ({
-          activeSession: {
-            kind: 'verify',
-            date: dateKey(),
-            startedAt: new Date().toISOString(),
-            reviewQueue: [],
-            reviewIndex: 0,
-            ratings: [],
-            sabqiQueue: [],
-            sabqiIndex: 0,
-            verifySurah: surahNumber,
-            verifyIndex: 0,
-            verifyFailed: [],
-            verseStart: 0,
-            versesTarget: 0,
-            versesLearned: 0,
-            activeSeconds: 0,
-          },
-          lastSummary: undefined,
-        })),
+        set((state) => {
+          const current = state.progress[surahNumber];
+          const existing = state.activeSession;
+
+          // Resume rather than restart. Al-Baqara is 286 verses: forcing the whole
+          // thing again from verse 1 because the user had to stop is how a final
+          // check becomes something people never attempt twice.
+          if (
+            existing?.kind === 'verify' &&
+            existing.verifySurah === surahNumber &&
+            existing.verifyIndex > 0
+          ) {
+            return { activeSession: existing, lastSummary: undefined };
+          }
+
+          // A re-take only covers what failed. The rest of the surah already
+          // proved itself, and the sabqi keeps it warm.
+          const queue = current ? verificationQueue(current) : [];
+
+          return {
+            activeSession: {
+              kind: 'verify',
+              date: dateKey(),
+              startedAt: new Date().toISOString(),
+              reviewQueue: [],
+              reviewIndex: 0,
+              ratings: [],
+              sabqiQueue: [],
+              sabqiIndex: 0,
+              verifySurah: surahNumber,
+              verifyQueue: queue,
+              verifyIndex: 0,
+              verifyFailed: [],
+              verseStart: 0,
+              versesTarget: 0,
+              versesLearned: 0,
+              activeSeconds: 0,
+            },
+            lastSummary: undefined,
+          };
+        }),
 
       recordVerificationVerse: (reveals, recalled, dwellSeconds = 0) =>
         set((state) => {
           const session = state.activeSession;
           if (!session || session.verifySurah === undefined) return state;
-          const verseNumber = session.verifyIndex + 1;
+          // The verse being recited comes from the queue — which on a re-take
+          // holds only the weak verses, not 1..N.
+          const verseNumber = session.verifyQueue?.[session.verifyIndex];
+          if (verseNumber === undefined) return state;
           const failed = verseGrade(reveals, recalled) !== 'good';
 
           return {
@@ -869,6 +954,10 @@ export const useQuranStore = create<QuranState>()(
           freezeUsed: streakResult.freezeUsed,
           completedSurah: session.completedSurah,
           awaitingVerification: session.awaitingVerification,
+          // Carried whatever the outcome: the end screen has to be able to say
+          // "Al-Falaq tient à 60 %, deux versets à raffermir" instead of falling
+          // silent, which is what a failed check felt like.
+          verifiedSurah: session.verifyIndex > 0 ? session.verifySurah : undefined,
           xpBreakdown,
           unlockedBadgeIds,
         };
@@ -978,7 +1067,13 @@ export const useQuranStore = create<QuranState>()(
       // old rule (every verse seen once) are left alone — sending a user's whole
       // library back for re-certification would be punishing them for a bug that
       // was ours.
-      version: 8,
+      // v9 adds `offlineAudioAuto`. It defaults to true — see normalizeProfile,
+      // which is what the migration below runs the profile through.
+      // v10 adds `profile.ramadanGoal`. It stays absent for everyone who has not
+      // chosen one: normalizeProfile — which the migration below runs the profile
+      // through — turns a missing or malformed goal into no goal at all, never
+      // into an empty objective the home screen would then hold them to.
+      version: 10,
       migrate: (persistedState, _version) => {
         const state = persistedState as Partial<QuranState>;
         const now = new Date();

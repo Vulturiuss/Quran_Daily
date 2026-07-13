@@ -58,6 +58,20 @@ export interface UserProfile {
   showReviewTranslation: boolean;
   theme: ThemeId;
   learningQueue: number[];
+  /**
+   * Let the app keep the recitation of the surahs being worked on. On by default:
+   * the point of the feature is that nobody has to ask for it.
+   */
+  offlineAudioAuto: boolean;
+  /**
+   * What the user set out to memorise this Ramadan. Absent the rest of the year,
+   * and absent for anyone who did not ask for one — an objective nobody chose is
+   * not an objective, it is a debt.
+   */
+  ramadanGoal?: {
+    surahNumbers: number[];
+    startedAt: string;
+  };
 }
 
 export interface UserStats {
@@ -121,8 +135,14 @@ export interface ActiveSession {
   /** Verses of the learning surah to re-recite before any new one (sabqi). */
   sabqiQueue: number[];
   sabqiIndex: number;
-  /** The surah being recited whole, and the verses failed so far. */
+  /** The surah being recited, and the verses failed so far. */
   verifySurah?: number;
+  /**
+   * The verses this recitation covers. The whole surah the first time; on a
+   * re-take, only the verses that failed — making someone recite Al-Baqara's 286
+   * verses again because they hesitated on two is not rigour, it is churn.
+   */
+  verifyQueue?: number[];
   verifyIndex: number;
   verifyFailed: number[];
   verseStart: number;
@@ -177,6 +197,12 @@ export interface SessionSummary {
   completedSurah?: number;
   /** Fully seen, now awaiting its final recitation. Not memorised — do not say so. */
   awaitingVerification?: number;
+  /**
+   * The surah whose final recitation this session ran, whatever its outcome. The
+   * end screen needs it to speak about what did NOT hold — a check that leaves a
+   * couple of weak verses is progress, and saying nothing at all reads as failure.
+   */
+  verifiedSurah?: number;
   xpBreakdown: {
     reviews: number;
     verses: number;

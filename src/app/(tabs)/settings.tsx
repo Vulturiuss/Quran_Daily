@@ -8,6 +8,7 @@ import {
   Crown,
   FileText,
   Headphones,
+  Map as MapIcon,
   RotateCcw,
   Scale,
   ShieldCheck,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react-native';
 
 import { AppScreen } from '@/components/AppScreen';
+import { OfflineAudioSection } from '@/components/OfflineAudioSection';
 import { VerseAudioButton } from '@/components/VerseAudioButton';
 import { Card, Pill, PrimaryButton, ScreenTitle, SectionHeader, TimeStepper } from '@/components/ui';
 import { getVerse } from '@/data/verses';
@@ -157,6 +159,26 @@ export default function SettingsScreen() {
           <View style={styles.profileCopy}>
             <Text style={styles.profileName}>{profile.displayName}</Text>
             <Text style={styles.profileTier}>{accountLabel}</Text>
+          </View>
+          <ChevronRight color={colors.textFaint} size={20} />
+        </Card>
+      </Pressable>
+
+      <SectionHeader title="Mon parcours" />
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => router.push('/map')}
+        style={({ pressed }) => pressed && styles.accountPressed}
+      >
+        <Card gradient style={styles.familyCard}>
+          <View style={styles.premiumIcon}>
+            <MapIcon color={colors.gold} size={24} />
+          </View>
+          <View style={styles.settingCopy}>
+            <Text style={styles.settingTitle}>Ma carte du Coran</Text>
+            <Text style={styles.settingText}>
+              Les 114 sourates et les 30 juz, colorés par ce que tu as mémorisé.
+            </Text>
           </View>
           <ChevronRight color={colors.textFaint} size={20} />
         </Card>
@@ -310,6 +332,8 @@ export default function SettingsScreen() {
           />
         ) : null}
       </Card>
+
+      <OfflineAudioSection />
 
       <SectionHeader title="Thème" />
       <Card>

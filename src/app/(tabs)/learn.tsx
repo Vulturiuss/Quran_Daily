@@ -31,6 +31,7 @@ import {
 } from '@/utils/access';
 import { sessionHasWork, useQuranStore } from '@/store/useQuranStore';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
+import { surahSolidity, verificationQueue } from '@/utils/memorization';
 import { sessionRoute } from '@/utils/sessionRoute';
 
 export default function LearnScreen() {
@@ -59,14 +60,37 @@ export default function LearnScreen() {
   // Every verse has been seen once, but the surah has not been recited whole yet.
   // It is not a surah "being learnt" any more — it is waiting for its final check,
   // and that check is the only thing that can make it `known`.
+  //
+  // A surah sent BACK by a failed check is `learning` again, with its weak verses
+  // named. It is fully seen, so no session ever teaches it a new verse: without a
+  // door here, its re-take was simply unreachable and the surah was stranded one
+  // step from the finish. That door is the whole point of a forgiving check.
   const pendingVerification = useMemo(
     () =>
       Object.values(progressMap)
-        .filter((item) => item.status === 'verifying')
+        .filter(
+          (item) =>
+            item.status === 'verifying' ||
+            (item.status === 'learning' &&
+              item.totalVerses > 0 &&
+              item.versesLearned >= item.totalVerses &&
+              (item.weakVerses ?? []).length > 0),
+        )
         .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))[0],
     [progressMap],
   );
   const verifySurah = getSurah(pendingVerification?.surahNumber);
+  // Whole surah the first time; only what wavered on a re-take.
+  const verifyQueueLength = pendingVerification
+    ? verificationQueue(pendingVerification).length
+    : 0;
+  const isRepair =
+    Boolean(pendingVerification) &&
+    verifyQueueLength > 0 &&
+    verifyQueueLength < (pendingVerification?.totalVerses ?? 0);
+  const solidity = pendingVerification
+    ? Math.round(surahSolidity(pendingVerification) * 100)
+    : 0;
 
   const [selectedSurah, setSelectedSurah] = useState<number>();
   const learning =
@@ -132,20 +156,30 @@ export default function LearnScreen() {
             <ShieldCheck color={colors.gold} size={22} />
           </View>
           <View style={styles.verifyCopy}>
-            <Eyebrow>Dernière étape</Eyebrow>
+            <Eyebrow>{isRepair ? 'Presque là' : 'Dernière étape'}</Eyebrow>
             <Text style={styles.verifyTitle}>
-              {verifySurah.nameTranslit} : contrôle final
+              {isRepair
+                ? `${verifySurah.nameTranslit} : raffermir ${verifyQueueLength} verset${
+                    verifyQueueLength > 1 ? 's' : ''
+                  }`
+                : `${verifySurah.nameTranslit} : contrôle final`}
             </Text>
           </View>
         </View>
         <Text style={styles.verifyText}>
-          Tu as vu tous les versets de cette sourate. Récite-la maintenant en entier,
-          verset après verset : c’est ce qui la fera entrer dans tes sourates mémorisées.
-          Ce qui hésite reviendra simplement en révision.
+          {isRepair
+            ? `${verifySurah.nameTranslit} tient déjà à ${solidity} %. Pas besoin de la reprendre en entier : ${
+                verifyQueueLength > 1
+                  ? `seuls ${verifyQueueLength} versets`
+                  : 'un seul verset'
+              } ${verifyQueueLength > 1 ? 'demandent' : 'demande'} encore à être raffermi${
+                verifyQueueLength > 1 ? 's' : ''
+              }, et la sourate rejoindra tes sourates mémorisées.`
+            : 'Tu as vu tous les versets de cette sourate. Récite-la maintenant en entier, verset après verset : c’est ce qui la fera entrer dans tes sourates mémorisées. Ce qui hésite reviendra simplement en révision.'}
         </Text>
         <PrimaryButton
           icon={ShieldCheck}
-          label="Réciter la sourate"
+          label={isRepair ? 'Raffermir ces versets' : 'Réciter la sourate'}
           loading={!access.resolved}
           onPress={() => startFinalCheck(verifySurah.number)}
         />
@@ -159,7 +193,9 @@ export default function LearnScreen() {
           title="Apprendre"
           subtitle={
             verificationCard
-              ? 'Une sourate attend son contrôle final.'
+              ? isRepair
+                ? 'Quelques versets à raffermir, et la sourate est complète.'
+                : 'Une sourate attend son contrôle final.'
               : 'Choisis une sourate pour commencer.'
           }
         />

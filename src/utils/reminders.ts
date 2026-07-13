@@ -49,11 +49,20 @@ function messageForDate(key: string) {
   return dailyMessages[seed % dailyMessages.length];
 }
 
+/**
+ * The evening reminder.
+ *
+ * It used to threaten: "Protège ton streak avant minuit", "il reste deux heures
+ * pour valider ta session". On an app tied to faith, guilt does not produce
+ * engagement — it produces avoidance, and avoidance produces the uninstall. The
+ * information is kept (the evening is short), the fear is not: the door is held
+ * open, it is never slammed.
+ */
 function streakBody(currentStreak: number, isToday: boolean) {
   if (isToday && currentStreak > 0) {
-    return `Ton streak de ${currentStreak} jour${currentStreak > 1 ? 's' : ''} se joue ce soir. Il reste deux heures pour faire ta session.`;
+    return `Tes ${currentStreak} jour${currentStreak > 1 ? 's' : ''} de régularité t’attendent. Il reste deux heures, et quelques minutes suffisent.`;
   }
-  return 'Il reste deux heures pour valider ta session du jour et protéger ta régularité.';
+  return 'Il reste deux heures dans la journée. Quelques versets, et ton rendez-vous est honoré.';
 }
 
 export function buildReminderPlan({
@@ -94,7 +103,7 @@ export function buildReminderPlan({
         id: `${REMINDER_ID_PREFIX}streak:${key}`,
         kind: 'streak',
         date: streakDate,
-        title: 'Protège ton streak avant minuit',
+        title: 'La soirée t’offre encore un moment',
         body: streakBody(currentStreak, offset === 0),
       });
     }

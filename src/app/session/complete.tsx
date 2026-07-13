@@ -22,6 +22,7 @@ import {
   Home,
   Share2,
   ShieldCheck,
+  Sparkles,
   Star,
 } from 'lucide-react-native';
 
@@ -35,6 +36,7 @@ import { useTheme } from '@/providers/ThemeProvider';
 import { useQuranStore } from '@/store/useQuranStore';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
 import { addDays, formatDuration } from '@/utils/date';
+import { surahSolidity } from '@/utils/memorization';
 import { buildSessionPreview } from '@/utils/sessionPlan';
 
 export default function SessionCompleteScreen() {
@@ -119,6 +121,22 @@ export default function SessionCompleteScreen() {
   const unlocked = summary.unlockedBadgeIds.map((id) => badgeById[id]).filter(Boolean);
   const completedSurah = getSurah(summary.completedSurah);
   const awaitingSurah = getSurah(summary.awaitingVerification);
+
+  // A final check that left a few verses behind. The screen used to say nothing at
+  // all about it — and silence, after a recitation the user knows did not go
+  // through, reads as failure. It is not one: the surah holds, a couple of seams
+  // do not yet, and those are exactly what tomorrow's session will drill. The word
+  // "échec" never appears, because that is not what happened.
+  const verifiedProgress =
+    summary.verifiedSurah !== undefined ? progress[summary.verifiedSurah] : undefined;
+  const verifiedSurah = getSurah(summary.verifiedSurah);
+  const weakVerses = verifiedProgress?.weakVerses ?? [];
+  const showPartialCheck =
+    summary.completedSurah === undefined &&
+    Boolean(verifiedSurah) &&
+    Boolean(verifiedProgress) &&
+    weakVerses.length > 0;
+  const solidity = verifiedProgress ? Math.round(surahSolidity(verifiedProgress) * 100) : 0;
   const tomorrow = buildSessionPreview(progress, profile, addDays(new Date(), 1));
   const tomorrowSurah = getSurah(tomorrow.learningSurah);
   return (
@@ -169,6 +187,22 @@ export default function SessionCompleteScreen() {
           <Text style={styles.summaryLabel}>durée</Text>
         </Card>
       </View>
+
+      {showPartialCheck && verifiedSurah ? (
+        <Card gradient style={styles.eventCard}>
+          <Sparkles color={colors.gold} size={25} />
+          <View style={styles.badgeCopy}>
+            <Text style={styles.eventTitle}>
+              {verifiedSurah.nameTranslit} tient à {solidity} %.
+            </Text>
+            <Text style={styles.badgeText}>
+              {weakVerses.length} verset{weakVerses.length > 1 ? 's' : ''} à raffermir,
+              on {weakVerses.length > 1 ? 'les' : 'le'} revoit demain. Tout le reste de
+              la sourate est déjà en place.
+            </Text>
+          </View>
+        </Card>
+      ) : null}
 
       {summary.freezeUsed ? (
         <Card style={styles.eventCard}>

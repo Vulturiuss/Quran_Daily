@@ -24,6 +24,13 @@ import { linkingCue } from '@/utils/memorization';
  * whole, verse after verse, from memory. Whatever is failed comes back as a weak
  * verse in the sabqi — nothing is lost, the surah simply stays in learning until
  * it holds.
+ *
+ * The screen walks `session.verifyQueue`, not 1..N. On a re-take that queue holds
+ * only the verses that hesitated: asking someone to recite Al-Baqara's 286 verses
+ * again because two of them wavered is not rigour, it is churn — the third time
+ * they "fail", they do not conclude that they are progressing, they conclude that
+ * they are failing at the Quran. The copy has to say so out loud, otherwise the
+ * shorter queue just looks like the same exam again.
  */
 export default function VerifySessionScreen() {
   const { colors } = useTheme();
@@ -37,9 +44,22 @@ export default function VerifySessionScreen() {
   const surah = getSurah(session?.verifySurah);
   const verses = getVerses(session?.verifySurah);
   const index = session?.verifyIndex ?? 0;
-  const total = verses.length;
-  const verse = verses[index];
-  const cue = linkingCue(verses[index - 1]);
+  // The queue, not the surah. Older sessions persisted before it existed have no
+  // queue at all, so they fall back to the whole surah.
+  const queue = useMemo(
+    () =>
+      session?.verifyQueue ?? verses.map((item) => item.verseNumber),
+    [session?.verifyQueue, verses],
+  );
+  const total = queue.length;
+  const verseNumber = queue[index];
+  const verse = verses[verseNumber - 1];
+  // The cue is the verse BEFORE it in the surah — the seam is what a hafiz fails
+  // on — and not whatever happens to precede it in the queue.
+  const cue = linkingCue(verses[verseNumber - 2]);
+  // A shorter queue than the surah means we are only firming up what wavered.
+  const isRepair = verses.length > 0 && total > 0 && total < verses.length;
+  const repairTitle = `Raffermir ${total} verset${total > 1 ? 's' : ''}`;
 
   const { seconds } = useDwell(verse?.verseKey);
   const requiredSeconds = minVerseSeconds(verse);
@@ -75,8 +95,10 @@ export default function VerifySessionScreen() {
 
   function confirmExit() {
     Alert.alert(
-      'Interrompre le contrôle ?',
-      'La sourate restera en contrôle final : tu pourras la réciter en entier plus tard, sans rien perdre.',
+      isRepair ? 'Reprendre plus tard ?' : 'Interrompre le contrôle ?',
+      isRepair
+        ? 'Rien n’est perdu : ces versets t’attendront, et tu les reprendras quand tu voudras.'
+        : 'La sourate restera en contrôle final : tu pourras la réciter en entier plus tard, sans rien perdre.',
       [
         { text: 'Continuer', style: 'cancel' },
         {
@@ -103,12 +125,16 @@ export default function VerifySessionScreen() {
     <AppScreen contentStyle={styles.screen} decorated={false} scroll={false}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.kicker}>Contrôle final</Text>
+          <Text style={styles.kicker}>{isRepair ? repairTitle : 'Contrôle final'}</Text>
           <Text style={styles.counter}>
             {total ? `Verset ${Math.min(index + 1, total)} sur ${total}` : surah.nameTranslit}
           </Text>
         </View>
-        <IconButton icon={X} label="Interrompre le contrôle" onPress={confirmExit} />
+        <IconButton
+          icon={X}
+          label={isRepair ? 'Interrompre le raffermissement' : 'Interrompre le contrôle'}
+          onPress={confirmExit}
+        />
       </View>
       <ProgressBar value={total ? index / total : 0} height={6} />
 
@@ -135,9 +161,9 @@ export default function VerifySessionScreen() {
             <Card style={styles.tip}>
               <ShieldCheck color={colors.gold} size={19} />
               <Text style={styles.tipText}>
-                Récite la sourate en entier, verset après verset. Ce n’est pas un examen :
-                on vérifie simplement qu’elle tient avant de la déclarer mémorisée. Ce qui
-                hésite reviendra tranquillement en révision.
+                {isRepair
+                  ? `Le reste de ${surah.nameTranslit} tient déjà : inutile de la reprendre en entier. On ne revoit que ${total > 1 ? `les ${total} versets` : 'le verset'} qui ${total > 1 ? 'avaient' : 'avait'} hésité, et la sourate sera complète.`
+                  : 'Récite la sourate en entier, verset après verset. Ce n’est pas un examen : on vérifie simplement qu’elle tient avant de la déclarer mémorisée. Ce qui hésite reviendra tranquillement en révision.'}
               </Text>
             </Card>
           </>
