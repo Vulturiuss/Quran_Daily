@@ -90,7 +90,11 @@ export default function ReviewSessionScreen() {
       router.replace('/(tabs)');
       return;
     }
-    if (current >= total) router.replace('/session/learn');
+    // A review-only session has no learning half to hand over to: it would land on
+    // the learning screen with nothing to teach.
+    if (current >= total) {
+      router.replace(session.kind === 'review' ? '/session/complete' : '/session/learn');
+    }
   }, [current, session, total]);
 
   useEffect(() => {

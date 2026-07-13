@@ -84,6 +84,7 @@ function ThemedStack() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="session/review" options={{ gestureEnabled: false }} />
       <Stack.Screen name="session/learn" options={{ gestureEnabled: false }} />
+      <Stack.Screen name="session/verify" options={{ gestureEnabled: false }} />
       <Stack.Screen name="session/complete" options={{ gestureEnabled: false }} />
         <Stack.Screen name="surah/[number]" />
       </Stack>

@@ -41,6 +41,11 @@ function learningState(surahNumber: number, totalVerses: number, learningQueue: 
       },
     },
     activeSession: {
+      kind: 'daily' as const,
+      sabqiQueue: [],
+      sabqiIndex: 0,
+      verifyIndex: 0,
+      verifyFailed: [],
       date: dateKey(),
       startedAt: new Date().toISOString(),
       reviewQueue: [],
@@ -65,9 +70,193 @@ test('finishing a surah that is also queued does not re-promote itself', () => {
   useQuranStore.getState().learnCurrentVerse();
   const state = useQuranStore.getState();
 
-  assert.equal(state.progress[112].status, 'known', '112 is finished, not learning');
+  assert.equal(
+    state.progress[112].status,
+    'verifying',
+    'every verse has been seen, so it awaits its final recitation — not "known"',
+  );
   assert.equal(state.progress[113]?.status, 'learning', '113 takes over');
   assert.deepEqual(state.profile.learningQueue, [], 'both leave the queue');
+});
+
+test('seeing every verse once does not make a surah known', () => {
+  learningState(112, 4, []);
+
+  useQuranStore.getState().learnCurrentVerse();
+
+  const progress = useQuranStore.getState().progress[112];
+  assert.equal(progress.status, 'verifying');
+  assert.equal(
+    progress.nextReviewAt,
+    undefined,
+    'it must not enter the SRS on a promise it has not kept',
+  );
+});
+
+test('a clean final recitation is what makes a surah known', () => {
+  learningState(112, 4, []);
+  useQuranStore.getState().learnCurrentVerse();
+
+  useQuranStore.getState().startVerification(112);
+  for (let verse = 0; verse < 4; verse += 1) {
+    useQuranStore.getState().recordVerificationVerse(0, true, 20); // recited, no reveals
+  }
+  useQuranStore.getState().completeVerification();
+
+  const progress = useQuranStore.getState().progress[112];
+  assert.equal(progress.status, 'known');
+  assert.deepEqual(progress.weakVerses, []);
+  assert.ok(progress.nextReviewAt, 'now, and only now, it enters the SRS');
+});
+
+test('a failed recitation sends the surah back with its weak verses named', () => {
+  learningState(112, 4, []);
+  useQuranStore.getState().learnCurrentVerse();
+
+  useQuranStore.getState().startVerification(112);
+  useQuranStore.getState().recordVerificationVerse(0, true, 20); // verse 1: clean
+  useQuranStore.getState().recordVerificationVerse(4, false, 20); // verse 2: blocked
+  useQuranStore.getState().recordVerificationVerse(0, true, 20); // verse 3: clean
+  useQuranStore.getState().recordVerificationVerse(3, false, 20); // verse 4: blocked
+  useQuranStore.getState().completeVerification();
+
+  const progress = useQuranStore.getState().progress[112];
+  assert.equal(progress.status, 'learning', 'back to work, not certified');
+  assert.deepEqual(progress.weakVerses, [2, 4], 'and the sabqi now knows what to drill');
+});
+
+test('sabqi replays the recent verses, and a clean one stops being weak', () => {
+  reset();
+  useQuranStore.setState({
+    progress: {
+      112: {
+        surahNumber: 112,
+        status: 'learning',
+        versesLearned: 3,
+        totalVerses: 4,
+        reviewIntervalDays: 1,
+        easeFactor: 2.5,
+        reviewCount: 0,
+        learnedAt: { 1: dateKey(), 2: dateKey(), 3: dateKey() },
+        weakVerses: [2],
+        updatedAt: new Date().toISOString(),
+      },
+    },
+  });
+
+  useQuranStore.getState().startDailySession({ kind: 'learn' });
+  const session = useQuranStore.getState().activeSession;
+  assert.deepEqual(
+    session?.sabqiQueue,
+    [1, 2, 3],
+    'what was learnt in the last days comes back before anything new',
+  );
+
+  // Verse 1 recited clean, verse 2 (the weak one) recited clean too: nothing
+  // uncovered AND the user says they recited it — both are needed now.
+  useQuranStore.getState().rateSabqiVerse(0, true, 15);
+  useQuranStore.getState().rateSabqiVerse(0, true, 15);
+
+  assert.deepEqual(
+    useQuranStore.getState().progress[112].weakVerses,
+    [],
+    'a weak verse that finally holds stops being weak',
+  );
+});
+
+test('a verse the user had to uncover becomes weak', () => {
+  reset();
+  useQuranStore.setState({
+    progress: {
+      112: {
+        surahNumber: 112,
+        status: 'learning',
+        versesLearned: 2,
+        totalVerses: 4,
+        reviewIntervalDays: 1,
+        easeFactor: 2.5,
+        reviewCount: 0,
+        learnedAt: { 1: dateKey(), 2: dateKey() },
+        updatedAt: new Date().toISOString(),
+      },
+    },
+  });
+  useQuranStore.getState().startDailySession({ kind: 'learn' });
+
+  useQuranStore.getState().rateSabqiVerse(4, false, 15); // four words uncovered on verse 1
+
+  assert.deepEqual(useQuranStore.getState().progress[112].weakVerses, [1]);
+});
+
+test('a verse the user admits blocking on becomes weak, even with nothing revealed', () => {
+  // Revealing words is optional, so `reveals === 0` used to read as "recited
+  // perfectly": tapping the single button after the timer scored full marks
+  // without reciting anything. An admitted blank must now be heard.
+  reset();
+  useQuranStore.setState({
+    progress: {
+      112: {
+        surahNumber: 112,
+        status: 'learning',
+        versesLearned: 2,
+        totalVerses: 4,
+        reviewIntervalDays: 1,
+        easeFactor: 2.5,
+        reviewCount: 0,
+        learnedAt: { 1: dateKey(), 2: dateKey() },
+        updatedAt: new Date().toISOString(),
+      },
+    },
+  });
+  useQuranStore.getState().startDailySession({ kind: 'learn' });
+
+  useQuranStore.getState().rateSabqiVerse(0, false, 15); // nothing uncovered, but blocked
+
+  assert.deepEqual(useQuranStore.getState().progress[112].weakVerses, [1]);
+});
+
+test('Réviser and Apprendre no longer launch the same session', () => {
+  reset();
+  useQuranStore.setState({
+    progress: {
+      112: {
+        surahNumber: 112,
+        status: 'known',
+        versesLearned: 4,
+        totalVerses: 4,
+        reviewIntervalDays: 1,
+        easeFactor: 2.5,
+        reviewCount: 1,
+      },
+      113: {
+        surahNumber: 113,
+        status: 'learning',
+        versesLearned: 1,
+        totalVerses: 6,
+        reviewIntervalDays: 1,
+        easeFactor: 2.5,
+        reviewCount: 0,
+        updatedAt: new Date().toISOString(),
+      },
+    },
+  });
+
+  useQuranStore.getState().startDailySession({ kind: 'review' });
+  const reviewOnly = useQuranStore.getState().activeSession;
+  assert.ok(reviewOnly!.reviewQueue.length > 0, 'reviews');
+  assert.equal(reviewOnly!.learningSurah, undefined, 'and nothing to learn');
+
+  useQuranStore.getState().clearActiveSession();
+  useQuranStore.getState().startDailySession({ kind: 'learn' });
+  const learnOnly = useQuranStore.getState().activeSession;
+  assert.deepEqual(learnOnly!.reviewQueue, [], 'no reviews');
+  assert.equal(learnOnly!.learningSurah, 113, 'only the learning surah');
+
+  useQuranStore.getState().clearActiveSession();
+  useQuranStore.getState().startDailySession({ kind: 'daily' });
+  const daily = useQuranStore.getState().activeSession;
+  assert.ok(daily!.reviewQueue.length > 0, 'the home screen still runs both');
+  assert.equal(daily!.learningSurah, 113);
 });
 
 test('a surah already known is skipped when promoting from the queue', () => {
@@ -271,6 +460,11 @@ test('an abandoned session is credited to the day it was worked, not today', () 
       },
     },
     activeSession: {
+      kind: 'daily' as const,
+      sabqiQueue: [],
+      sabqiIndex: 0,
+      verifyIndex: 0,
+      verifyFailed: [],
       date: YESTERDAY,
       startedAt: `${YESTERDAY}T20:00:00.000Z`,
       reviewQueue: [],
@@ -297,6 +491,11 @@ test('an overnight session does not inflate the recorded duration', () => {
   reset();
   useQuranStore.setState({
     activeSession: {
+      kind: 'daily' as const,
+      sabqiQueue: [],
+      sabqiIndex: 0,
+      verifyIndex: 0,
+      verifyFailed: [],
       date: YESTERDAY,
       // Started 14 hours ago and only flushed now.
       startedAt: new Date(Date.now() - 14 * 3600 * 1000).toISOString(),
@@ -328,6 +527,11 @@ test('a session tapped through earns no recitation time', () => {
   reset();
   useQuranStore.setState({
     activeSession: {
+      kind: 'daily' as const,
+      sabqiQueue: [],
+      sabqiIndex: 0,
+      verifyIndex: 0,
+      verifyFailed: [],
       date: dateKey(),
       startedAt: new Date().toISOString(),
       reviewQueue: [],
@@ -349,6 +553,11 @@ test('a completed session is queued for the server to judge', () => {
   reset();
   useQuranStore.setState({
     activeSession: {
+      kind: 'daily' as const,
+      sabqiQueue: [],
+      sabqiIndex: 0,
+      verifyIndex: 0,
+      verifyFailed: [],
       date: dateKey(),
       startedAt: new Date(Date.now() - 120_000).toISOString(),
       reviewQueue: [],
@@ -389,6 +598,11 @@ test("yesterday's leftover session does not steal today's daily credit", () => {
     ],
     stats: { ...createDefaultStats(), currentStreak: 1 },
     activeSession: {
+      kind: 'daily' as const,
+      sabqiQueue: [],
+      sabqiIndex: 0,
+      verifyIndex: 0,
+      verifyFailed: [],
       date: dateKey(),
       startedAt: new Date().toISOString(),
       reviewQueue: [],

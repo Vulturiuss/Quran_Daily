@@ -56,6 +56,11 @@ test('builds tomorrow preview from due reviews and remaining verses', () => {
     reviewCount: 1,
     reviewSurahNumbers: [112],
     versesCount: 1,
+    // Nothing was learnt inside the sabqi window here, and no surah is waiting for
+    // its final recitation — but the preview reports both, so the home screen can
+    // stop announcing "2 verses" for a session that starts with eight replays.
+    sabqiCount: 0,
+    awaitingVerification: undefined,
     learningSurah: 103,
   });
 });

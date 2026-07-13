@@ -1,6 +1,12 @@
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { BookOpen, Check, ChevronRight, Sparkles } from 'lucide-react-native';
+import {
+  BookOpen,
+  Check,
+  ChevronRight,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react-native';
 
 import { useTheme } from '@/providers/ThemeProvider';
 import { Palette, radius, spacing, typography, withAlpha } from '@/theme';
@@ -22,11 +28,17 @@ export function SurahRow({
   const status = progress?.status ?? 'locked';
   // No surah is ever locked behind the paywall: the 114 are free.
   const StatusIcon =
-    status === 'known' ? Check : status === 'learning' ? Sparkles : BookOpen;
+    status === 'known'
+      ? Check
+      : status === 'verifying'
+        ? ShieldCheck
+        : status === 'learning'
+          ? Sparkles
+          : BookOpen;
   const statusColor =
     status === 'known'
       ? colors.success
-      : status === 'learning'
+      : status === 'verifying' || status === 'learning'
         ? colors.gold
         : colors.textFaint;
 
@@ -38,9 +50,11 @@ export function SurahRow({
       } versets. ${
         status === 'known'
           ? 'Connue'
-          : status === 'learning'
-            ? `${progress?.versesLearned ?? 0} versets mémorisés`
-            : 'À apprendre'
+          : status === 'verifying'
+            ? 'Contrôle final à passer'
+            : status === 'learning'
+              ? `${progress?.versesLearned ?? 0} versets mémorisés`
+              : 'À apprendre'
       }`}
       accessibilityRole="button"
       onPress={onPress}
@@ -77,12 +91,14 @@ export function SurahRow({
         <Text style={[styles.statusText, { color: statusColor }]}>
           {status === 'known'
             ? 'Connue'
-            : status === 'learning'
-              ? `${Math.round(
-                  ((progress?.versesLearned ?? 0) /
-                    Math.max(1, progress?.totalVerses ?? 1)) *
-                    100,
-                )}%`
+            : status === 'verifying'
+              ? 'Contrôle'
+              : status === 'learning'
+                ? `${Math.round(
+                    ((progress?.versesLearned ?? 0) /
+                      Math.max(1, progress?.totalVerses ?? 1)) *
+                      100,
+                  )}%`
               : ''}
         </Text>
         <ChevronRight size={18} color={colors.textFaint} />

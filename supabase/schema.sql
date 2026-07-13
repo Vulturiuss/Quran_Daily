@@ -225,7 +225,10 @@ create policy "surah_progress_own_rows" on public.surah_progress
 -- One row per user per day, accumulated by record_daily_session().
 alter table public.daily_sessions
   add column if not exists active_seconds integer not null default 0,
-  add column if not exists session_count integer not null default 0;
+  add column if not exists session_count integer not null default 0,
+  -- Verses replayed in sabqi or in a final recitation. A different unit from a
+  -- surah review, and conflating them made the server refuse honest work.
+  add column if not exists recited_verses integer not null default 0;
 
 -- Sessions are submitted from a queue that survives being offline, so the same
 -- one can arrive twice. Without this, a retry would double a child's streak day.
@@ -241,8 +244,13 @@ alter table public.session_submissions enable row level security;
 drop policy if exists "session_submissions_select_own" on public.session_submissions;
 create policy "session_submissions_select_own" on public.session_submissions
   for select using (auth.uid() = user_id);
-revoke insert, update, delete on public.session_submissions from authenticated;
+
+-- `revoke all` then `grant select`, rather than revoking the three write verbs:
+-- Supabase grants ALL on public tables by default, and ALL includes TRUNCATE —
+-- which RLS does not police. Naming the writes left the table truncatable.
+revoke all on public.session_submissions from authenticated;
 revoke all on public.session_submissions from anon;
+grant select on public.session_submissions to authenticated;
 
 -- daily_sessions is the ONLY thing a parent's dashboard trusts, so the client can
 -- read its own rows but never write them: everything goes through
@@ -252,8 +260,9 @@ drop policy if exists "daily_sessions_own_rows" on public.daily_sessions;
 create policy "daily_sessions_select_own_rows" on public.daily_sessions
   for select using (auth.uid() = user_id);
 
-revoke insert, update, delete on public.daily_sessions from authenticated;
+revoke all on public.daily_sessions from authenticated;
 revoke all on public.daily_sessions from anon;
+grant select on public.daily_sessions to authenticated;
 drop policy if exists "streaks_own_row" on public.streaks;
 create policy "streaks_own_row" on public.streaks
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
@@ -916,7 +925,14 @@ begin
            day.xp_earned, day.active_seconds
     from public.daily_sessions day
     where day.user_id = member.user_id
-      and day.session_date = current_date
+      -- The child's day, not the server's. `current_date` is UTC on Supabase, so
+      -- a Paris session finished at 00:30 landed on a date the parent's "today"
+      -- would never match — the dashboard showed the routine as not done, minutes
+      -- after it was.
+      and day.session_date = (
+        now() at time zone coalesce(profile.timezone, 'UTC')
+      )::date
+      and day.session_count > 0
   ) today on true
   where member.family_id = owned_family_id;
 
@@ -959,24 +975,49 @@ $$;
 -- Sessions: the server decides whether a session counts
 -- ---------------------------------------------------------------------------
 
--- Mirrors src/utils/effort.ts. Deliberately more permissive than the floors the
--- app enforces: the client already holds the real thresholds, and rejecting an
--- honest session over a rounding difference would be far worse than letting a
--- slightly fast one through.
-create or replace function public.session_time_floor(
+-- Mirrors SERVER_MIN_SECONDS_PER_ITEM in src/utils/effort.ts, and MUST stay below
+-- the smallest floor the app itself enforces. Anything higher refuses work that
+-- was honestly done: sabqi verses are reported as reviews, the app only gates a
+-- short verse at 4 s, and a 5 s-per-review floor here rejected four honest sabqi
+-- verses on Al-Ikhlas outright.
+--
+-- This is only a sanity net. The real gate is the client's, and the real
+-- protection is that the time is credited exactly as it was spent.
+create or replace function public.session_items(
   verses_learned integer,
-  surahs_reviewed integer
+  surahs_reviewed integer,
+  recited_verses integer
 )
 returns integer
 language sql
 immutable
 set search_path = ''
 as $$
-  select greatest(0, verses_learned) * 3 + greatest(0, surahs_reviewed) * 5;
+  select greatest(0, verses_learned)
+       + greatest(0, surahs_reviewed)
+       + greatest(0, recited_verses);
 $$;
 
-revoke all on function public.session_time_floor(integer, integer) from public;
-revoke all on function public.session_time_floor(integer, integer) from anon;
+revoke all on function public.session_items(integer, integer, integer) from public;
+revoke all on function public.session_items(integer, integer, integer) from anon;
+
+drop function if exists public.session_time_floor(integer, integer);
+
+create or replace function public.session_time_floor(
+  verses_learned integer,
+  surahs_reviewed integer,
+  recited_verses integer
+)
+returns integer
+language sql
+immutable
+set search_path = ''
+as $$
+  select public.session_items(verses_learned, surahs_reviewed, recited_verses) * 3;
+$$;
+
+revoke all on function public.session_time_floor(integer, integer, integer) from public;
+revoke all on function public.session_time_floor(integer, integer, integer) from anon;
 
 /*
  * Records one completed session, or refuses it.
@@ -987,28 +1028,45 @@ revoke all on function public.session_time_floor(integer, integer) from anon;
  * table, and this table only accepts sessions that could actually have been
  * worked:
  *
- *  - the time claimed must cover a plausible minimum per verse and per review,
- *    which is what stops tapping straight through;
+ *  - the time claimed must cover a plausible minimum per item, which is what
+ *    stops tapping straight through;
  *  - it cannot exceed the wall-clock time between start and finish, so no amount
  *    of tapping fabricates minutes;
  *  - it is bounded, so idling does not fabricate them either;
+ *  - it cannot be back-dated, so a missed day stays missed;
  *  - a resubmitted session (the offline queue retries) is accepted once.
  *
- * Honest limit, stated plainly: a determined child who calls this RPC directly
- * can still submit plausible-but-false numbers. Preventing that needs device
- * attestation. What this does prevent is cheating from inside the app, which is
- * the real case.
+ * Every parameter is prefixed `p_`. This is not cosmetic: `session_date`,
+ * `completed_at` and friends are also column names, and an unprefixed parameter
+ * makes `ON CONFLICT (user_id, session_date)` ambiguous — PL/pgSQL then raises
+ * "column reference is ambiguous" at runtime, on every single call, while the
+ * script still installs cleanly. The whole feature would have been silently dead.
+ *
+ * Honest limit, stated plainly: a determined child who calls this RPC directly can
+ * still submit plausible-but-false numbers for today. What they cannot do is
+ * rebuild a history: back-dating is refused.
  */
+
+-- Both older shapes must go. `create or replace` cannot rename input parameters,
+-- and the 9-argument version predates `recited_verses`.
+drop function if exists public.record_daily_session(
+  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean
+);
+drop function if exists public.record_daily_session(
+  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean, integer
+);
+
 create or replace function public.record_daily_session(
-  client_id text,
-  session_date date,
-  started_at timestamptz,
-  completed_at timestamptz,
-  active_seconds integer,
-  xp_earned integer,
-  surahs_reviewed integer,
-  verses_learned integer,
-  is_perfect boolean default false
+  p_client_id text,
+  p_session_date date,
+  p_started_at timestamptz,
+  p_completed_at timestamptz,
+  p_active_seconds integer,
+  p_xp_earned integer,
+  p_surahs_reviewed integer,
+  p_verses_learned integer,
+  p_is_perfect boolean default false,
+  p_recited_verses integer default 0
 )
 returns jsonb
 language plpgsql
@@ -1019,14 +1077,23 @@ declare
   current_user_id uuid := auth.uid();
   elapsed_seconds integer;
   floor_seconds integer;
+  item_count integer;
   day_count integer;
 begin
   if current_user_id is null then
     raise exception 'Authentication required';
   end if;
 
-  if client_id is null or length(client_id) = 0 or length(client_id) > 100 then
-    raise exception 'Identifiant de session invalide.';
+  -- A null slips through every comparison below (null < 0 is null, not true), so
+  -- it is rejected up front rather than blowing up on a NOT NULL constraint and
+  -- being retried forever by the offline queue.
+  if p_client_id is null or length(p_client_id) = 0 or length(p_client_id) > 100
+     or p_session_date is null
+     or p_active_seconds is null or p_xp_earned is null
+     or p_surahs_reviewed is null or p_verses_learned is null
+     or p_recited_verses is null
+  then
+    return jsonb_build_object('accepted', false, 'reason', 'invalid_payload');
   end if;
 
   -- Already recorded: the offline queue retried. Accept without counting twice.
@@ -1034,40 +1101,63 @@ begin
     select 1
     from public.session_submissions submission
     where submission.user_id = current_user_id
-      and submission.client_id = record_daily_session.client_id
+      and submission.client_id = p_client_id
   ) then
     return jsonb_build_object('accepted', true, 'duplicate', true);
   end if;
 
-  if verses_learned < 0 or verses_learned > 50
-     or surahs_reviewed < 0 or surahs_reviewed > 20
-     or xp_earned < 0 or xp_earned > 2000
+  -- A full recitation of Al-Baqara is 286 recited verses, so that bound is wide;
+  -- the other two are not.
+  if p_verses_learned < 0 or p_verses_learned > 50
+     or p_surahs_reviewed < 0 or p_surahs_reviewed > 20
+     or p_recited_verses < 0 or p_recited_verses > 300
+     or p_xp_earned < 0 or p_xp_earned > 6000
   then
     return jsonb_build_object('accepted', false, 'reason', 'implausible_counts');
   end if;
 
-  if verses_learned + surahs_reviewed = 0 then
+  item_count := public.session_items(
+    p_verses_learned, p_surahs_reviewed, p_recited_verses
+  );
+
+  if item_count = 0 then
     return jsonb_build_object('accepted', false, 'reason', 'empty_session');
   end if;
 
-  if started_at is null or completed_at is null
-     or completed_at < started_at
-     or completed_at > now() + interval '5 minutes'
+  if p_started_at is null or p_completed_at is null
+     or p_completed_at < p_started_at
+     or p_completed_at > now() + interval '5 minutes'
+     -- No lower bound meant a child could post a session dated two years ago, one
+     -- call per day, and hand their parents a fabricated year of history — in the
+     -- very table that claims to only hold work that was really done.
+     or p_completed_at < now() - interval '2 days'
   then
     return jsonb_build_object('accepted', false, 'reason', 'implausible_timestamps');
   end if;
 
-  -- The session date must match when it was actually finished, so a session
-  -- cannot be back-dated onto a day that was missed.
-  if abs(record_daily_session.session_date - record_daily_session.completed_at::date) > 1 then
+  -- The session must be filed on the day it was finished. A one-day slack would
+  -- let a missed day be filled in from the next one — which is exactly the hole
+  -- this is supposed to close — so the only tolerance is the timezone one: a
+  -- session finished just after midnight UTC may still belong to the previous
+  -- local day.
+  if p_session_date <> p_completed_at::date
+     and not (
+       p_session_date = p_completed_at::date - 1
+       and p_completed_at::time < time '14:00'
+     )
+  then
     return jsonb_build_object('accepted', false, 'reason', 'date_mismatch');
   end if;
 
-  elapsed_seconds := ceil(extract(epoch from (completed_at - started_at)))::integer;
-  floor_seconds := public.session_time_floor(verses_learned, surahs_reviewed);
+  elapsed_seconds := ceil(
+    extract(epoch from (p_completed_at - p_started_at))
+  )::integer;
+  floor_seconds := public.session_time_floor(
+    p_verses_learned, p_surahs_reviewed, p_recited_verses
+  );
 
   -- Tapped straight through: not enough time to have read anything.
-  if active_seconds < floor_seconds then
+  if p_active_seconds < floor_seconds then
     return jsonb_build_object(
       'accepted', false,
       'reason', 'too_fast',
@@ -1077,9 +1167,9 @@ begin
 
   -- Cannot claim more focused time than the session actually lasted, nor more
   -- than an hour, nor more than its items could plausibly hold.
-  if active_seconds > elapsed_seconds + 5
-     or active_seconds > 3600
-     or active_seconds > 180 * (verses_learned + surahs_reviewed)
+  if p_active_seconds > elapsed_seconds + 5
+     or p_active_seconds > 3600
+     or p_active_seconds > 180 * item_count
   then
     return jsonb_build_object('accepted', false, 'reason', 'implausible_duration');
   end if;
@@ -1088,36 +1178,33 @@ begin
   into day_count
   from public.daily_sessions day
   where day.user_id = current_user_id
-    and day.session_date = record_daily_session.session_date;
+    and day.session_date = p_session_date;
 
   if coalesce(day_count, 0) >= 20 then
     return jsonb_build_object('accepted', false, 'reason', 'daily_limit');
   end if;
 
   insert into public.session_submissions (user_id, client_id, session_date)
-  values (
-    current_user_id,
-    record_daily_session.client_id,
-    record_daily_session.session_date
-  );
+  values (current_user_id, p_client_id, p_session_date);
 
   insert into public.daily_sessions as day (
     user_id, session_date, completed, completed_at,
     duration_seconds, active_seconds, session_count,
-    xp_earned, surahs_reviewed, verses_learned, is_perfect
+    xp_earned, surahs_reviewed, recited_verses, verses_learned, is_perfect
   )
   values (
     current_user_id,
-    record_daily_session.session_date,
+    p_session_date,
     true,
-    record_daily_session.completed_at,
-    record_daily_session.active_seconds,
-    record_daily_session.active_seconds,
+    p_completed_at,
+    p_active_seconds,
+    p_active_seconds,
     1,
-    record_daily_session.xp_earned,
-    record_daily_session.surahs_reviewed,
-    record_daily_session.verses_learned,
-    record_daily_session.is_perfect
+    p_xp_earned,
+    p_surahs_reviewed,
+    p_recited_verses,
+    p_verses_learned,
+    p_is_perfect
   )
   on conflict (user_id, session_date) do update
   set completed = true,
@@ -1127,6 +1214,7 @@ begin
       session_count = day.session_count + 1,
       xp_earned = day.xp_earned + excluded.xp_earned,
       surahs_reviewed = day.surahs_reviewed + excluded.surahs_reviewed,
+      recited_verses = day.recited_verses + excluded.recited_verses,
       verses_learned = day.verses_learned + excluded.verses_learned,
       is_perfect = day.is_perfect or excluded.is_perfect;
 
@@ -1135,17 +1223,21 @@ end;
 $$;
 
 revoke all on function public.record_daily_session(
-  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean
+  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean, integer
 ) from public;
 revoke all on function public.record_daily_session(
-  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean
+  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean, integer
 ) from anon;
 grant execute on function public.record_daily_session(
-  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean
+  text, date, timestamptz, timestamptz, integer, integer, integer, integer, boolean, integer
 ) to authenticated;
 
 -- Consecutive days ending today or yesterday, computed from what the server
 -- accepted -- not from what the device claims.
+--
+-- "Today" is the member's own day: `current_date` is UTC on Supabase, so for a
+-- user west of it the server rolls over hours early and a live streak read as
+-- broken.
 create or replace function public.verified_streak(target_user_id uuid)
 returns integer
 language sql
@@ -1153,7 +1245,14 @@ stable
 security definer
 set search_path = ''
 as $$
-  with days as (
+  with member_today as (
+    select (
+      now() at time zone coalesce(profile.timezone, 'UTC')
+    )::date as today
+    from public.profiles profile
+    where profile.id = target_user_id
+  ),
+  days as (
     select distinct day.session_date
     from public.daily_sessions day
     where day.user_id = target_user_id
@@ -1170,7 +1269,8 @@ as $$
   latest as (
     select ordered.anchor
     from ordered
-    where ordered.session_date >= current_date - 1
+    where ordered.session_date
+      >= coalesce((select member_today.today from member_today), current_date) - 1
     order by ordered.session_date desc
     limit 1
   )

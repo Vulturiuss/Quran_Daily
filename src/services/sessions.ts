@@ -18,16 +18,20 @@ export async function submitSession(
 ): Promise<SessionVerdict> {
   if (!supabase) return { status: 'retry' };
 
+  // The `p_` prefix is load-bearing: the RPC's parameters must not collide with
+  // the column names, or `ON CONFLICT (user_id, session_date)` is ambiguous and
+  // the function raises on every call. See supabase/schema.sql.
   const { data, error } = await supabase.rpc('record_daily_session', {
-    client_id: session.id,
-    session_date: session.date,
-    started_at: session.startedAt,
-    completed_at: session.completedAt,
-    active_seconds: session.activeSeconds,
-    xp_earned: session.xpEarned,
-    surahs_reviewed: session.surahsReviewed,
-    verses_learned: session.versesLearned,
-    is_perfect: session.isPerfect,
+    p_client_id: session.id,
+    p_session_date: session.date,
+    p_started_at: session.startedAt,
+    p_completed_at: session.completedAt,
+    p_active_seconds: session.activeSeconds,
+    p_xp_earned: session.xpEarned,
+    p_surahs_reviewed: session.surahsReviewed,
+    p_recited_verses: session.recitedVerses ?? 0,
+    p_verses_learned: session.versesLearned,
+    p_is_perfect: session.isPerfect,
   });
 
   if (error) return { status: 'retry' };

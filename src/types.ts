@@ -1,6 +1,11 @@
 import type { ThemeId } from '@/theme';
 
-export type SurahStatus = 'locked' | 'learning' | 'known';
+/**
+ * `verifying`: every verse has been seen once, but the surah has not yet been
+ * recited whole. It used to jump straight to `known` at that point, which
+ * certified something false and fed the SRS on it.
+ */
+export type SurahStatus = 'locked' | 'learning' | 'verifying' | 'known';
 export type ReviewRating = 'good' | 'hard' | 'forgot';
 
 export interface Surah {
@@ -35,6 +40,10 @@ export interface UserSurahProgress {
   easeFactor: number;
   reviewCount: number;
   updatedAt?: string;
+  /** Verse number -> the day it was learnt. Drives the sabqi window. */
+  learnedAt?: Record<number, string>;
+  /** Verses failed during the final recitation. Replayed until they hold. */
+  weakVerses?: number[];
 }
 
 export interface UserProfile {
@@ -93,19 +102,42 @@ export interface SessionEntry {
   perfectSessionCount: number;
 }
 
+/**
+ * `daily` runs the whole routine (reviews then learning) — that is what the home
+ * screen launches. The Réviser and Apprendre tabs launch only their own half:
+ * they used to both call the same thing, so the two tabs were two doors into the
+ * same room. `verify` is the final recitation of a finished surah.
+ */
+export type SessionKind = 'daily' | 'review' | 'learn' | 'verify';
+
 export interface ActiveSession {
+  kind: SessionKind;
   date: string;
   startedAt: string;
   reviewQueue: number[];
   reviewIndex: number;
   ratings: ReviewRating[];
   learningSurah?: number;
+  /** Verses of the learning surah to re-recite before any new one (sabqi). */
+  sabqiQueue: number[];
+  sabqiIndex: number;
+  /** The surah being recited whole, and the verses failed so far. */
+  verifySurah?: number;
+  verifyIndex: number;
+  verifyFailed: number[];
   verseStart: number;
   versesTarget: number;
   versesLearned: number;
   isBonus?: boolean;
   freezeAllowance?: number;
+  /** Recited whole and passed. Earns the celebration and the completion XP. */
   completedSurah?: number;
+  /**
+   * Every verse has now been seen once, so the surah has moved to its final
+   * check. Distinct from `completedSurah`: it is not memorised yet, and the end
+   * screen must not say it is.
+   */
+  awaitingVerification?: number;
   /**
    * Time actually spent on the text, accumulated item by item and capped per
    * item. Not wall clock: leaving the app open must not earn recitation time,
@@ -128,6 +160,8 @@ export interface PendingSession {
   activeSeconds: number;
   xpEarned: number;
   surahsReviewed: number;
+  /** Verses replayed in sabqi and in the final recitation — a different unit. */
+  recitedVerses: number;
   versesLearned: number;
   isPerfect: boolean;
 }
@@ -141,6 +175,8 @@ export interface SessionSummary {
   isBonus: boolean;
   freezeUsed: boolean;
   completedSurah?: number;
+  /** Fully seen, now awaiting its final recitation. Not memorised — do not say so. */
+  awaitingVerification?: number;
   xpBreakdown: {
     reviews: number;
     verses: number;

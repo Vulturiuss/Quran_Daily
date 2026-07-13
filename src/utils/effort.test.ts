@@ -66,6 +66,57 @@ test('the server accepts a session that was honestly worked', () => {
   );
 });
 
+test('the server never refuses work the app itself allowed', () => {
+  // The invariant that matters, and it was broken. The app gates a short verse at
+  // MIN_VERSE_FLOOR (4 s), so the server's per-item floor must sit below it — at
+  // 5 s per review, four honest sabqi verses on Al-Ikhlas, done at exactly the pace
+  // the app allowed, were refused, and the child's real work vanished from their
+  // parent's dashboard.
+  const shortVerse = { textArabic: 'قُلْ هُوَ ٱللَّهُ أَحَدٌ' };
+  const clientFloor = minVerseSeconds(shortVerse);
+
+  for (const items of [1, 4, 8, 20]) {
+    assert.equal(
+      isPlausibleSession({
+        activeSeconds: items * clientFloor,
+        versesLearned: 0,
+        surahsReviewed: 0,
+        recitedVerses: items,
+      }),
+      true,
+      `${items} sabqi verses at the client's own minimum must be accepted`,
+    );
+  }
+});
+
+test('a full recitation of a long surah is not refused for being long', () => {
+  // The other half of the same mistake: reciting all 286 verses of Al-Baqara was
+  // reported as ONE review, and one item cannot plausibly hold 47 minutes — so the
+  // server refused the single most demanding thing a user can do.
+  assert.equal(
+    isPlausibleSession({
+      activeSeconds: 2860,
+      versesLearned: 0,
+      surahsReviewed: 1,
+      recitedVerses: 286,
+    }),
+    true,
+  );
+});
+
+test('reciting verses instantly is still refused', () => {
+  assert.equal(
+    isPlausibleSession({
+      activeSeconds: 5,
+      versesLearned: 0,
+      surahsReviewed: 0,
+      recitedVerses: 20,
+    }),
+    false,
+    'twenty verses cannot be recited in five seconds',
+  );
+});
+
 test('the server rejects a session claiming more time than its items can hold', () => {
   assert.equal(
     isPlausibleSession({ activeSeconds: 7200, versesLearned: 1, surahsReviewed: 0 }),

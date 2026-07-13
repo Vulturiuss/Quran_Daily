@@ -29,14 +29,19 @@ export function healLearningState({ progress, profile }: LearningState): Learnin
     if (
       item.status === 'learning' &&
       item.totalVerses > 0 &&
-      item.versesLearned >= item.totalVerses
+      item.versesLearned >= item.totalVerses &&
+      // A surah sent BACK to learning by a failed final recitation also has every
+      // verse "learnt" — it has weak verses to drill. Pushing it to `verifying`
+      // here would undo the failure on the next cloud sync (healLearningState runs
+      // on every incoming snapshot), so the weak verses would never be worked and
+      // the user would be stuck re-taking the check they just failed.
+      (item.weakVerses ?? []).length === 0
     ) {
       changed = true;
-      nextProgress[surahNumber] = {
-        ...item,
-        status: 'known',
-        nextReviewAt: item.nextReviewAt ?? new Date().toISOString(),
-      };
+      // Every verse has been seen, so it is no longer being learnt — but it is not
+      // known either until it has been recited whole. It goes to the final check,
+      // not straight into the SRS.
+      nextProgress[surahNumber] = { ...item, status: 'verifying' };
       continue;
     }
     nextProgress[surahNumber] = item;
@@ -45,7 +50,9 @@ export function healLearningState({ progress, profile }: LearningState): Learnin
   const queue = profile.learningQueue ?? [];
   let nextQueue = queue.filter((surahNumber) => {
     const status = nextProgress[surahNumber]?.status;
-    return status !== 'known' && status !== 'learning';
+    // A surah awaiting its final recitation has no business queueing to be
+    // learnt again either.
+    return status !== 'known' && status !== 'learning' && status !== 'verifying';
   });
   if (nextQueue.length !== queue.length) changed = true;
 

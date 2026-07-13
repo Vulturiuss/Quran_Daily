@@ -30,7 +30,7 @@ function progressOf(partial: Partial<UserSurahProgress> & { surahNumber: number 
   };
 }
 
-test('a fully learnt surah stuck on "learning" is marked known and hands over', () => {
+test('a fully learnt surah stuck on "learning" goes to its final check and hands over', () => {
   // Exactly the corrupted state the bug left behind: 112 finished (4/4) but still
   // "learning", pinned at 100%, with itself still queued behind 113.
   const healed = healLearningState({
@@ -40,8 +40,14 @@ test('a fully learnt surah stuck on "learning" is marked known and hands over', 
     profile: { ...profile, learningQueue: [112, 113] },
   });
 
-  assert.equal(healed.progress[112].status, 'known');
-  assert.ok(healed.progress[112].nextReviewAt, 'it becomes reviewable');
+  // Not `known`: seeing every verse once is not knowing the surah. It has to be
+  // recited whole first, and only then does it enter the SRS.
+  assert.equal(healed.progress[112].status, 'verifying');
+  assert.equal(
+    healed.progress[112].nextReviewAt,
+    undefined,
+    'it must not enter the SRS before it has proved itself',
+  );
   assert.equal(healed.progress[113].status, 'learning', '113 takes over');
   assert.deepEqual(healed.profile.learningQueue, []);
   assert.equal(healed.progress[113].totalVerses, 5, 'An-Nas has 5 verses, not 0');

@@ -78,25 +78,55 @@ export function countableSeconds(dwellSeconds: number) {
 
 /**
  * The lower bound the server uses to decide whether a submitted session is
- * possible at all. Deliberately more permissive than the UI floors above: the
- * client already enforces the real thresholds, and rejecting an honest session
- * over a rounding difference or a slow clock would be far worse than letting a
- * slightly fast one through.
+ * possible at all.
+ *
+ * INVARIANT: it must never exceed the smallest floor the client can enforce, or
+ * the server rejects work that was honestly done. That is not theoretical — it
+ * happened: sabqi verses are reported as reviews, the client gates them on
+ * `minVerseSeconds` (as low as 4 s for a short verse), and a 5 s-per-review floor
+ * turned four honest sabqi verses on Al-Ikhlas into a refused session.
+ *
+ * So the floor is per *item*, and sits below `MIN_VERSE_FLOOR`. It is only a
+ * sanity net: the real gate is the client's, and the real protection is the
+ * measured time, which is credited exactly as it was spent.
  */
-export const SERVER_MIN_SECONDS_PER_VERSE = 3;
-export const SERVER_MIN_SECONDS_PER_REVIEW = 5;
+export const SERVER_MIN_SECONDS_PER_ITEM = 3;
+export const SERVER_MIN_SECONDS_PER_VERSE = SERVER_MIN_SECONDS_PER_ITEM;
+export const SERVER_MIN_SECONDS_PER_REVIEW = SERVER_MIN_SECONDS_PER_ITEM;
+
+/**
+ * Plausibility is judged on the number of *items* worked, and the three kinds are
+ * not interchangeable — conflating them broke this twice:
+ *
+ *  - sabqi verses reported as surah reviews inherited a 5 s floor they could not
+ *    meet, so honest work was refused;
+ *  - a full recitation of Al-Baqara reported as one review inherited a 180 s
+ *    ceiling, so a 47-minute recitation was refused too.
+ *
+ * `recitedVerses` counts the verses replayed in sabqi and in the final check.
+ */
+export function sessionItems(input: {
+  versesLearned: number;
+  surahsReviewed: number;
+  recitedVerses: number;
+}) {
+  return input.versesLearned + input.surahsReviewed + input.recitedVerses;
+}
 
 export function isPlausibleSession(input: {
   activeSeconds: number;
   versesLearned: number;
   surahsReviewed: number;
+  recitedVerses?: number;
 }) {
-  const floor =
-    input.versesLearned * SERVER_MIN_SECONDS_PER_VERSE +
-    input.surahsReviewed * SERVER_MIN_SECONDS_PER_REVIEW;
+  const items = sessionItems({
+    versesLearned: input.versesLearned,
+    surahsReviewed: input.surahsReviewed,
+    recitedVerses: input.recitedVerses ?? 0,
+  });
 
   return (
-    input.activeSeconds >= floor &&
-    input.activeSeconds <= MAX_ITEM_SECONDS * (input.versesLearned + input.surahsReviewed)
+    input.activeSeconds >= items * SERVER_MIN_SECONDS_PER_ITEM &&
+    input.activeSeconds <= MAX_ITEM_SECONDS * items
   );
 }

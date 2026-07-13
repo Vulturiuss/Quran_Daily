@@ -42,6 +42,7 @@ export default function SessionCompleteScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const activeSession = useQuranStore((state) => state.activeSession);
   const completeDailySession = useQuranStore((state) => state.completeDailySession);
+  const startVerification = useQuranStore((state) => state.startVerification);
   const summary = useQuranStore((state) => state.lastSummary);
   const stats = useQuranStore((state) => state.stats);
   const profile = useQuranStore((state) => state.profile);
@@ -117,6 +118,7 @@ export default function SessionCompleteScreen() {
 
   const unlocked = summary.unlockedBadgeIds.map((id) => badgeById[id]).filter(Boolean);
   const completedSurah = getSurah(summary.completedSurah);
+  const awaitingSurah = getSurah(summary.awaitingVerification);
   const tomorrow = buildSessionPreview(progress, profile, addDays(new Date(), 1));
   const tomorrowSurah = getSurah(tomorrow.learningSurah);
   return (
@@ -189,6 +191,29 @@ export default function SessionCompleteScreen() {
               {completedSurah.nameTranslit} rejoint tes sourates connues.
             </Text>
           </View>
+        </Card>
+      ) : awaitingSurah ? (
+        // Every verse has been seen, and that is all. Saying "memorised" here —
+        // which is what this screen used to do — certifies the very thing the
+        // final recitation exists to check.
+        <Card gradient style={styles.eventCard}>
+          <ShieldCheck color={colors.gold} size={25} />
+          <View style={styles.badgeCopy}>
+            <Text style={styles.eventTitle}>Contrôle final débloqué</Text>
+            <Text style={styles.badgeText}>
+              Tu as vu tous les versets de {awaitingSurah.nameTranslit}. Récite-la en
+              entier pour qu’elle rejoigne tes sourates connues.
+            </Text>
+          </View>
+          <PrimaryButton
+            compact
+            label="Réciter"
+            onPress={() => {
+              startVerification(awaitingSurah.number);
+              router.replace('/session/verify');
+            }}
+            variant="surface"
+          />
         </Card>
       ) : null}
 

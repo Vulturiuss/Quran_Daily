@@ -67,8 +67,15 @@ export default function HomeScreen() {
     0,
   );
   const sessionPlan = buildSessionPreview(progress, profile, new Date());
+  // Replaying the recent verses and reciting a finished surah whole are work.
+  // Counting only reviews and new verses had the home screen announce "all caught
+  // up, come back tomorrow" while the sabqi and the final check waited in another
+  // tab — the two things the whole method now rests on.
   const sessionIsEmpty =
-    sessionPlan.reviewCount === 0 && sessionPlan.versesCount === 0;
+    sessionPlan.reviewCount === 0 &&
+    sessionPlan.versesCount === 0 &&
+    sessionPlan.sabqiCount === 0 &&
+    sessionPlan.awaitingVerification === undefined;
   const reviewNames = sessionPlan.reviewSurahNumbers
     .map((number) => getSurah(number)?.nameTranslit)
     .filter(Boolean)

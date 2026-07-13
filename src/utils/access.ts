@@ -1,4 +1,5 @@
 import { ThemeId } from '@/theme';
+import type { SessionKind } from '@/types';
 
 /**
  * What each tier may do.
@@ -55,16 +56,24 @@ export interface SessionAccess {
   freezeAllowance?: number;
   /** Which of the active learning surahs to work on today. */
   learningSurah?: number;
+  /**
+   * What the session contains. The home screen runs the whole routine (`daily`);
+   * the Réviser and Apprendre tabs run only their own half. They used to both
+   * launch the same session, so the two tabs were two doors into the same room.
+   */
+  kind?: SessionKind;
 }
 
 export function sessionAccess(
   hasFullAccess: boolean,
   isBonus = false,
   learningSurah?: number,
+  kind: SessionKind = 'daily',
 ): SessionAccess {
   return {
     isBonus,
     learningSurah,
+    kind,
     freezeAllowance: capabilities(hasFullAccess).freezeAllowance,
   };
 }

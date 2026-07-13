@@ -24,15 +24,20 @@ export default function LibraryScreen() {
   const knownCount = Object.values(progress).filter(
     (item) => item.status === 'known',
   ).length;
+  // A surah awaiting its final recitation is still being worked on, so it belongs
+  // with the ones in progress rather than nowhere — which is where it fell before.
   const learningCount = Object.values(progress).filter(
-    (item) => item.status === 'learning',
+    (item) => item.status === 'learning' || item.status === 'verifying',
   ).length;
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('fr');
     return surahs.filter((surah) => {
       const status = progress[surah.number]?.status ?? 'locked';
-      const matchesFilter = filter === 'all' || status === filter;
+      const matchesFilter =
+        filter === 'all' ||
+        status === filter ||
+        (filter === 'learning' && status === 'verifying');
       const matchesQuery =
         !normalized ||
         surah.nameTranslit.toLocaleLowerCase('fr').includes(normalized) ||
