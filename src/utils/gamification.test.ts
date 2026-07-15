@@ -12,6 +12,7 @@ import {
   reconcileMissedStreak,
   streakMilestoneXP,
 } from './gamification';
+import { badges } from '@/data/badges';
 
 test('weekly XP and freezes reset on their calendar boundaries', () => {
   const stats = createDefaultStats(new Date(2026, 4, 25, 12));
@@ -190,4 +191,34 @@ test('unlocks the complete regularity, memorization and special badge rules', ()
   assert.ok(unlocked.includes('fajr'));
   assert.ok(unlocked.includes('lightning'));
   assert.ok(unlocked.includes('perfect_10'));
+});
+
+test('every badge the awarder can emit exists in the catalogue, and vice-versa', () => {
+  const maxStats = {
+    ...createDefaultStats(),
+    totalSessions: 1,
+    currentStreak: 365,
+    consecutivePerfectSessions: 10,
+    badges: [] as string[],
+  };
+  // Two calls because fajr (<7h) and isha (>=22h) are mutually exclusive.
+  const morning = findUnlockedBadges(maxStats, {
+    knownCount: 114,
+    completedAt: new Date(2026, 0, 1, 6, 0, 0),
+    durationSeconds: 1,
+  });
+  const night = findUnlockedBadges(maxStats, {
+    knownCount: 114,
+    completedAt: new Date(2026, 0, 1, 22, 0, 0),
+    durationSeconds: 1,
+  });
+
+  const emittable = new Set([...morning, ...night]);
+  const catalogue = new Set(badges.map((badge) => badge.id));
+
+  assert.deepEqual(
+    [...emittable].sort(),
+    [...catalogue].sort(),
+    'findUnlockedBadges and src/data/badges.ts must define the exact same ids — a mismatch renders a blank badge',
+  );
 });

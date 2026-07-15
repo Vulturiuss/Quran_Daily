@@ -3,11 +3,13 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 /**
  * A parent asks the server to remind their child.
  *
- * The caller's own JWT is used — never the service role — so `auth.uid()` inside
+ * The caller's own JWT authorizes the request: `auth.uid()` inside
  * `request_family_nudge` is the parent, and every check the RPC makes (parent of
- * this child, active family, rate limit) applies. The push tokens it returns
- * never leave this function: the parent asks for a reminder to be sent, they do
- * not receive the means to send one themselves.
+ * this child, active family, rate limit) applies. The RPC returns no tokens —
+ * it is granted to `authenticated`, so anything it returned the parent's client
+ * could read directly. Only once the RPC approves does this function look the
+ * child's tokens up with the service role and send. The parent asks for a
+ * reminder; they never receive the means to send one themselves.
  */
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -29,7 +31,6 @@ interface PushToken {
 interface NudgeDecision {
   sent: boolean;
   reason?: 'rate_limited' | 'no_device';
-  tokens?: PushToken[];
   childName?: string;
 }
 
@@ -56,7 +57,8 @@ Deno.serve(async (request) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const anonKey =
     Deno.env.get('SUPABASE_ANON_KEY') ?? Deno.env.get('SUPABASE_PUBLISHABLE_KEY');
-  if (!supabaseUrl || !anonKey) {
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
     return json({ sent: false, reason: 'server_misconfigured' }, 500);
   }
 
@@ -95,7 +97,20 @@ Deno.serve(async (request) => {
     return json({ sent: false, reason: decision?.reason ?? 'unknown' });
   }
 
-  const tokens = decision.tokens ?? [];
+  // The RPC approved and recorded the nudge but returned no tokens (they must
+  // never reach the parent's client). Look them up here with the service role.
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: tokenRows, error: tokenError } = await admin
+    .from('push_tokens')
+    .select('token, platform')
+    .eq('user_id', childUserId);
+  if (tokenError) {
+    return json({ sent: false, reason: 'server_error' }, 500);
+  }
+
+  const tokens = (tokenRows ?? []) as PushToken[];
   const childName = decision.childName ?? 'Ta session';
   const messages = tokens.map((item) => ({
     to: item.token,

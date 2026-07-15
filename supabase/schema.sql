@@ -1370,8 +1370,10 @@ grant select on public.family_nudges to authenticated;
  * The parent never sees the child's push token — that would be a capability to
  * notify them from anywhere, forever. They name the child; the server checks that
  * they really are a parent in the same family with an active subscription, checks
- * that the child has not already been nudged in the last few hours, records the
- * nudge, and returns the tokens for the Edge Function to send to.
+ * that the child has not already been nudged in the last few hours, and records
+ * the nudge. It deliberately returns NO tokens: this function is granted to
+ * `authenticated`, so anything it returns, the parent's client can read directly.
+ * The Edge Function looks the tokens up itself with the service role and sends.
  *
  * The rate limit is not a technicality. A reminder that can be fired at will
  * stops being a reminder and becomes nagging, and an app that lets a parent nag a
@@ -1386,7 +1388,6 @@ as $$
 declare
   parent_family_id uuid;
   recent_count integer;
-  tokens jsonb;
   child_name text;
 begin
   if auth.uid() is null then
@@ -1427,15 +1428,11 @@ begin
     );
   end if;
 
-  select coalesce(
-    jsonb_agg(jsonb_build_object('token', token.token, 'platform', token.platform)),
-    '[]'::jsonb
-  )
-  into tokens
-  from public.push_tokens token
-  where token.user_id = request_family_nudge.child_user_id;
-
-  if jsonb_array_length(tokens) = 0 then
+  if not exists (
+    select 1
+    from public.push_tokens token
+    where token.user_id = request_family_nudge.child_user_id
+  ) then
     return jsonb_build_object('sent', false, 'reason', 'no_device');
   end if;
 
@@ -1447,9 +1444,10 @@ begin
   insert into public.family_nudges (parent_id, child_id)
   values (auth.uid(), request_family_nudge.child_user_id);
 
+  -- No tokens in the response: see the header comment. The Edge Function fetches
+  -- them with the service role and sends the push itself.
   return jsonb_build_object(
     'sent', true,
-    'tokens', tokens,
     'childName', coalesce(child_name, 'ton enfant')
   );
 end;

@@ -1,5 +1,5 @@
 import { ReviewRating, UserSurahProgress } from '@/types';
-import { addDays } from '@/utils/date';
+import { addDays, dateKey } from '@/utils/date';
 
 const MIN_EASE = 1.3;
 const MAX_INTERVAL = 180;
@@ -10,10 +10,19 @@ export function calculateNextReview(
   now = new Date(),
 ): UserSurahProgress {
   let interval = progress.reviewIntervalDays || 1;
-  let easeFactor = progress.easeFactor || 2.5;
+  // Clamped both ways: a corrupt or merged snapshot can carry an ease below the
+  // floor, and the `good` branch only nudges up by 0.05, so without this the
+  // documented [1.3, 3.0] range would not hold on that path.
+  let easeFactor = Math.min(3, Math.max(MIN_EASE, progress.easeFactor || 2.5));
+  const reviewCount = progress.reviewCount || 0;
 
   if (rating === 'good') {
-    interval = progress.reviewCount === 0 ? 2 : Math.round(interval * easeFactor);
+    // A freshly-learnt surah (default 1-day interval) graduates to 2 days on its
+    // first good review. But onboarding schedules declared-known surahs out to
+    // 14 days with reviewCount 0 — those must grow by ease like any other, not
+    // collapse back to 2 and flood the queue on their first review.
+    interval =
+      reviewCount === 0 && interval <= 1 ? 2 : Math.round(interval * easeFactor);
     easeFactor = Math.min(3, easeFactor + 0.05);
   } else if (rating === 'hard') {
     interval = Math.max(1, Math.round(interval / 2));
@@ -31,7 +40,7 @@ export function calculateNextReview(
     nextReviewAt: addDays(now, interval).toISOString(),
     reviewIntervalDays: interval,
     easeFactor,
-    reviewCount: progress.reviewCount + 1,
+    reviewCount: reviewCount + 1,
   };
 }
 
@@ -68,7 +77,11 @@ export function scheduleAfterReview(
 export function isDue(progress: UserSurahProgress, now = new Date()) {
   if (progress.status !== 'known') return false;
   if (!progress.nextReviewAt) return true;
-  return new Date(progress.nextReviewAt).getTime() <= now.getTime();
+  // Compare by local day, not by clock time. `addDays` keeps the original hour,
+  // so a review scheduled at 20:05 must still be due at 08:00 on its day — a
+  // timestamp comparison would keep hiding it until 20:05 and silently stretch
+  // every interval by a day for anyone who reviews a little earlier each time.
+  return dateKey(new Date(progress.nextReviewAt)) <= dateKey(now);
 }
 
 export function sortByReviewPriority(items: UserSurahProgress[]) {

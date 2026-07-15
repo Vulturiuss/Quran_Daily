@@ -1,5 +1,5 @@
-import { memo, useEffect, useMemo, useRef } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
@@ -65,7 +65,7 @@ const ReviewVerseLine = memo(function ReviewVerseLine({
 export default function ReviewSessionScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const scrollRef = useRef<ScrollView>(null);
+  const listRef = useRef<FlatList<Verse>>(null);
   const session = useQuranStore((state) => state.activeSession);
   const rateCurrentReview = useQuranStore((state) => state.rateCurrentReview);
   const clearActiveSession = useQuranStore((state) => state.clearActiveSession);
@@ -85,6 +85,20 @@ export default function ReviewSessionScreen() {
   const ready = seconds >= requiredSeconds;
   const remainingSeconds = Math.max(0, requiredSeconds - seconds);
 
+  const showTranslation = profile.showReviewTranslation;
+  const showTransliteration = profile.showReviewTransliteration;
+  const keyExtractor = useCallback((verse: Verse) => String(verse.verseNumber), []);
+  const renderVerse = useCallback(
+    ({ item }: { item: Verse }) => (
+      <ReviewVerseLine
+        showTranslation={showTranslation}
+        showTransliteration={showTransliteration}
+        verse={item}
+      />
+    ),
+    [showTranslation, showTransliteration],
+  );
+
   useEffect(() => {
     if (!session) {
       router.replace('/(tabs)');
@@ -98,7 +112,7 @@ export default function ReviewSessionScreen() {
   }, [current, session, total]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ animated: false, y: 0 });
+    listRef.current?.scrollToOffset({ animated: false, offset: 0 });
   }, [current]);
 
   async function rate(rating: ReviewRating) {
@@ -153,71 +167,85 @@ export default function ReviewSessionScreen() {
       </View>
       <ProgressBar value={total ? current / total : 1} height={6} />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        ref={scrollRef}
-        removeClippedSubviews
-        showsVerticalScrollIndicator={false}
-        style={styles.scroll}
-      >
-        <View style={styles.surahHeader}>
-          <Text style={styles.surahName}>{surah.nameTranslit}</Text>
-          <ArabicText size={28} style={styles.surahArabic}>
-            {surah.name}
-          </ArabicText>
-          <Text style={styles.surahMeta}>{surah.totalVerses} versets</Text>
-        </View>
-
-        <Card gradient style={styles.recitationCard}>
-          {verses.length ? (
-            verses.map((verse) => (
-              <ReviewVerseLine
-                key={verse.verseNumber}
-                showTranslation={profile.showReviewTranslation}
-                showTransliteration={profile.showReviewTransliteration}
-                verse={verse}
-              />
-            ))
-          ) : (
-            <View style={styles.memoryPrompt}>
-              <Sparkles color={colors.gold} size={32} />
-              <Text style={styles.memoryTitle}>Récite cette sourate de mémoire</Text>
-              <Text style={styles.memoryText}>
-                Le texte complet sera disponible après synchronisation. Évalue honnêtement la
-                fluidité de ta récitation.
-              </Text>
+      {(() => {
+        const surahHeader = (
+          <View style={styles.surahHeader}>
+            <Text style={styles.surahName}>{surah.nameTranslit}</Text>
+            <ArabicText size={28} style={styles.surahArabic}>
+              {surah.name}
+            </ArabicText>
+            <Text style={styles.surahMeta}>{surah.totalVerses} versets</Text>
+          </View>
+        );
+        const toggles = (
+          <>
+            <View style={styles.displayToggles}>
+              <View style={styles.toggleLabel}>
+                <Languages color={colors.textMuted} size={16} />
+                <Pill
+                  label="Translittération"
+                  selected={profile.showReviewTransliteration}
+                  onPress={() =>
+                    updateProfile({
+                      showReviewTransliteration: !profile.showReviewTransliteration,
+                    })
+                  }
+                />
+              </View>
+              <View style={styles.toggleLabel}>
+                <TextQuote color={colors.textMuted} size={16} />
+                <Pill
+                  label="Traduction"
+                  selected={profile.showReviewTranslation}
+                  onPress={() =>
+                    updateProfile({
+                      showReviewTranslation: !profile.showReviewTranslation,
+                    })
+                  }
+                />
+              </View>
             </View>
-          )}
-        </Card>
+            {audioError ? <Text style={styles.audioError}>{audioError}</Text> : null}
+          </>
+        );
 
-        <View style={styles.displayToggles}>
-          <View style={styles.toggleLabel}>
-            <Languages color={colors.textMuted} size={16} />
-            <Pill
-              label="Translittération"
-              selected={profile.showReviewTransliteration}
-              onPress={() =>
-                updateProfile({
-                  showReviewTransliteration: !profile.showReviewTransliteration,
-                })
-              }
-            />
-          </View>
-          <View style={styles.toggleLabel}>
-            <TextQuote color={colors.textMuted} size={16} />
-            <Pill
-              label="Traduction"
-              selected={profile.showReviewTranslation}
-              onPress={() =>
-                updateProfile({
-                  showReviewTranslation: !profile.showReviewTranslation,
-                })
-              }
-            />
-          </View>
-        </View>
-        {audioError ? <Text style={styles.audioError}>{audioError}</Text> : null}
-      </ScrollView>
+        // A long surah (Al-Baqara is 286 verses) must not mount every line at
+        // once — the whole session froze on open. The gradient card is a fixed
+        // viewport and the FlatList virtualises the verses inside it.
+        return (
+          <Card gradient style={styles.recitationCard}>
+            {verses.length ? (
+              <FlatList
+                ref={listRef}
+                data={verses}
+                renderItem={renderVerse}
+                keyExtractor={keyExtractor}
+                ListHeaderComponent={surahHeader}
+                ListFooterComponent={toggles}
+                contentContainerStyle={styles.scrollContent}
+                initialNumToRender={12}
+                maxToRenderPerBatch={12}
+                windowSize={7}
+                removeClippedSubviews
+                showsVerticalScrollIndicator={false}
+              />
+            ) : (
+              <>
+                {surahHeader}
+                <View style={styles.memoryPrompt}>
+                  <Sparkles color={colors.gold} size={32} />
+                  <Text style={styles.memoryTitle}>Récite cette sourate de mémoire</Text>
+                  <Text style={styles.memoryText}>
+                    Le texte complet sera disponible après synchronisation. Évalue honnêtement la
+                    fluidité de ta récitation.
+                  </Text>
+                </View>
+                {toggles}
+              </>
+            )}
+          </Card>
+        );
+      })()}
 
       <View style={styles.footer}>
         <Text style={styles.question}>Comment t’en souviens-tu ?</Text>
@@ -313,6 +341,7 @@ function createStyles(colors: Palette) {
     fontSize: 12,
   },
   recitationCard: {
+    flex: 1,
     paddingVertical: spacing.lg,
   },
   verseLine: {

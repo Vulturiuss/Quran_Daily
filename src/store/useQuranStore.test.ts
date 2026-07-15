@@ -8,7 +8,11 @@ import '@/testing/storageStub';
 import { createDefaultStats } from '@/utils/gamification';
 import { addDays, dateKey } from '@/utils/date';
 
-import { selectLearningSurahs, useQuranStore } from './useQuranStore';
+import {
+  migratePersistedState,
+  selectLearningSurahs,
+  useQuranStore,
+} from './useQuranStore';
 
 const YESTERDAY = dateKey(addDays(new Date(), -1));
 
@@ -523,8 +527,9 @@ test('an overnight session does not inflate the recorded duration', () => {
   assert.equal(useQuranStore.getState().stats.totalMinutes, 1);
 });
 
-test('a session tapped through earns no recitation time', () => {
+test('a session tapped through earns nothing at all', () => {
   reset();
+  const streakBefore = useQuranStore.getState().stats.currentStreak;
   useQuranStore.setState({
     activeSession: {
       kind: 'daily' as const,
@@ -545,8 +550,15 @@ test('a session tapped through earns no recitation time', () => {
   });
 
   const summary = useQuranStore.getState().completeDailySession();
+  const state = useQuranStore.getState();
 
-  assert.equal(summary?.durationSeconds, 0, 'no time claimed, none credited');
+  // No time on the text means no work: no summary, no streak day, no queued
+  // session, no history — the same as tapping "Terminer" on an empty screen.
+  assert.equal(summary, undefined, 'zero-effort session earns no credit');
+  assert.equal(state.stats.currentStreak, streakBefore, 'no streak day');
+  assert.deepEqual(state.pendingSessions, [], 'nothing queued for the server');
+  assert.equal(state.history.length, 0, 'no history record written');
+  assert.equal(state.activeSession, undefined, 'the empty session is cleared');
 });
 
 test('a completed session is queued for the server to judge', () => {
@@ -604,7 +616,9 @@ test("yesterday's leftover session does not steal today's daily credit", () => {
       verifyIndex: 0,
       verifyFailed: [],
       date: dateKey(),
-      startedAt: new Date().toISOString(),
+      // Started a couple of minutes ago: a real session, so the accumulated
+      // 30s of effort is not clamped away by a zero elapsed time.
+      startedAt: new Date(Date.now() - 120_000).toISOString(),
       reviewQueue: [],
       reviewIndex: 0,
       ratings: [],
@@ -623,4 +637,251 @@ test("yesterday's leftover session does not steal today's daily credit", () => {
     2,
     'the streak advances from yesterday to today',
   );
+});
+
+test('flushing a stale session takes the day before it as the streak baseline, not a newer record', () => {
+  reset();
+  const twoDaysAgo = dateKey(addDays(new Date(), -2));
+  const threeDaysAgo = dateKey(addDays(new Date(), -3));
+  const today = dateKey();
+  useQuranStore.setState({
+    // A newer completed day (today) exists alongside the day before the stale
+    // session. The descending scan used to return `today` as the baseline.
+    history: [
+      {
+        date: today,
+        completedAt: `${today}T20:00:00.000Z`,
+        durationSeconds: 300,
+        xpEarned: 50,
+        surahsReviewed: 1,
+        versesLearned: 0,
+        isPerfect: false,
+      },
+      {
+        date: threeDaysAgo,
+        completedAt: `${threeDaysAgo}T20:00:00.000Z`,
+        durationSeconds: 300,
+        xpEarned: 50,
+        surahsReviewed: 1,
+        versesLearned: 0,
+        isPerfect: false,
+      },
+    ],
+    stats: { ...createDefaultStats(), currentStreak: 10, longestStreak: 10 },
+    activeSession: {
+      kind: 'daily' as const,
+      sabqiQueue: [],
+      sabqiIndex: 0,
+      verifyIndex: 0,
+      verifyFailed: [],
+      date: twoDaysAgo,
+      startedAt: new Date(Date.now() - 120_000).toISOString(),
+      reviewQueue: [],
+      reviewIndex: 0,
+      ratings: [],
+      verseStart: 0,
+      versesTarget: 1,
+      versesLearned: 1,
+      activeSeconds: 45,
+    },
+  });
+
+  useQuranStore.getState().completeDailySession();
+
+  assert.equal(
+    useQuranStore.getState().stats.currentStreak,
+    11,
+    'the streak advances from the prior day; a future record must not collapse it to 1',
+  );
+});
+
+test('a queued session is stamped with its account, and an account switch drops it', () => {
+  reset();
+  useQuranStore.setState({ syncMeta: { dirty: false, cloudUserId: 'user-A' } });
+  useQuranStore.setState({
+    activeSession: {
+      kind: 'daily' as const,
+      sabqiQueue: [],
+      sabqiIndex: 0,
+      verifyIndex: 0,
+      verifyFailed: [],
+      date: dateKey(),
+      startedAt: new Date(Date.now() - 120_000).toISOString(),
+      reviewQueue: [],
+      reviewIndex: 0,
+      ratings: [],
+      verseStart: 0,
+      versesTarget: 1,
+      versesLearned: 1,
+      activeSeconds: 45,
+    },
+  });
+
+  useQuranStore.getState().completeDailySession();
+  const [pending] = useQuranStore.getState().pendingSessions;
+  assert.equal(pending.userId, 'user-A', 'stamped with the account that earned it');
+
+  // Another existing account signs in on the same device.
+  const snapshot = {
+    schemaVersion: 1 as const,
+    updatedAt: new Date().toISOString(),
+    onboardingCompleted: true,
+    profile: useQuranStore.getState().profile,
+    progress: {},
+    stats: createDefaultStats(),
+    history: [],
+  };
+  useQuranStore
+    .getState()
+    .applyCloudSnapshot(snapshot, snapshot.updatedAt, 'user-B', true);
+
+  assert.deepEqual(
+    useQuranStore.getState().pendingSessions,
+    [],
+    "user A's queued session is never left for user B to send",
+  );
+});
+
+test('an account switch drops an in-progress session so it cannot be credited to the new account', () => {
+  reset();
+  useQuranStore.setState({
+    syncMeta: { dirty: false, cloudUserId: 'user-A' },
+    activeSession: {
+      kind: 'daily' as const,
+      sabqiQueue: [],
+      sabqiIndex: 0,
+      verifyIndex: 0,
+      verifyFailed: [],
+      date: dateKey(),
+      startedAt: new Date(Date.now() - 120_000).toISOString(),
+      reviewQueue: [2],
+      reviewIndex: 1,
+      ratings: ['good'],
+      verseStart: 0,
+      versesTarget: 0,
+      versesLearned: 0,
+      activeSeconds: 45,
+    },
+  });
+
+  const snapshot = {
+    schemaVersion: 1 as const,
+    updatedAt: new Date().toISOString(),
+    onboardingCompleted: true,
+    profile: useQuranStore.getState().profile,
+    progress: {},
+    stats: createDefaultStats(),
+    history: [],
+  };
+  useQuranStore
+    .getState()
+    .applyCloudSnapshot(snapshot, snapshot.updatedAt, 'user-B', true);
+
+  assert.equal(
+    useQuranStore.getState().activeSession,
+    undefined,
+    "account A's in-progress session does not survive into account B",
+  );
+
+  // A same-account pull, by contrast, must leave a running session alone.
+  reset();
+  const running = {
+    kind: 'daily' as const,
+    sabqiQueue: [],
+    sabqiIndex: 0,
+    verifyIndex: 0,
+    verifyFailed: [],
+    date: dateKey(),
+    startedAt: new Date().toISOString(),
+    reviewQueue: [2],
+    reviewIndex: 0,
+    ratings: [],
+    verseStart: 0,
+    versesTarget: 0,
+    versesLearned: 0,
+    activeSeconds: 10,
+  };
+  useQuranStore.setState({
+    syncMeta: { dirty: false, cloudUserId: 'user-A' },
+    activeSession: running,
+  });
+  useQuranStore
+    .getState()
+    .applyCloudSnapshot(snapshot, snapshot.updatedAt, 'user-A', false);
+
+  assert.ok(
+    useQuranStore.getState().activeSession,
+    'a same-account pull keeps the running session',
+  );
+});
+
+test('migrating a pre-v7 payload keeps progress and history and backfills new fields', () => {
+  const legacy = {
+    onboardingCompleted: true,
+    profile: { reciterId: 'ar.alafasy' },
+    progress: {
+      2: {
+        surahNumber: 2,
+        status: 'known',
+        versesLearned: 180,
+        totalVerses: 286,
+        reviewIntervalDays: 14,
+        easeFactor: 2.7,
+        reviewCount: 40,
+      },
+    },
+    stats: { totalXP: 500, currentStreak: 12 },
+    history: [
+      {
+        date: '2026-07-01',
+        completedAt: '2026-07-01T20:00:00.000Z',
+        durationSeconds: 300,
+        xpEarned: 60,
+        surahsReviewed: 1,
+        versesLearned: 2,
+        isPerfect: false,
+      },
+    ],
+    // No pendingSessions, no activeSession, no syncMeta — this is the old shape.
+  };
+
+  const migrated = migratePersistedState(legacy, 6);
+
+  assert.equal(migrated.progress[2].versesLearned, 180, 'earned progress preserved');
+  assert.equal(migrated.history.length, 1, 'history preserved');
+  assert.equal(migrated.stats.totalXP, 500, 'monotonic stats carried');
+  assert.deepEqual(migrated.pendingSessions, [], 'the pending queue is backfilled');
+  assert.ok(migrated.syncMeta, 'sync meta is backfilled');
+});
+
+test('migrating an empty or undefined payload does not throw', () => {
+  assert.doesNotThrow(() => migratePersistedState(undefined, 0));
+  assert.doesNotThrow(() => migratePersistedState({}, 0));
+  const migrated = migratePersistedState({}, 0);
+  assert.equal(migrated.onboardingCompleted ?? false, false);
+  assert.deepEqual(migrated.pendingSessions, []);
+});
+
+test('a pre-loop active session is healed rather than crashing hydrate', () => {
+  const legacy = {
+    onboardingCompleted: true,
+    activeSession: {
+      date: dateKey(),
+      startedAt: new Date().toISOString(),
+      reviewQueue: [2],
+      reviewIndex: 0,
+      ratings: [],
+      verseStart: 0,
+      versesTarget: 3,
+      versesLearned: 0,
+      // none of kind / sabqi* / verify* / activeSeconds existed yet
+    },
+  };
+
+  const migrated = migratePersistedState(legacy, 7);
+
+  assert.equal(migrated.activeSession?.kind, 'daily', 'kind backfilled');
+  assert.deepEqual(migrated.activeSession?.sabqiQueue, []);
+  assert.equal(migrated.activeSession?.verifyIndex, 0);
+  assert.equal(migrated.activeSession?.activeSeconds, 0);
 });

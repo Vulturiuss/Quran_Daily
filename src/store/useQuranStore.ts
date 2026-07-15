@@ -4,6 +4,9 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { getSurah } from '@/data/surahs';
 import { getVerses } from '@/data/verses';
+// A session is parameterised only by which active learning surahs it works on —
+// no surah is gated. See src/utils/access.ts.
+import type { SessionAccess } from '@/utils/access';
 import {
   ActiveSession,
   CloudSnapshot,
@@ -118,10 +121,6 @@ interface OnboardingInput {
   notificationsEnabled: boolean;
 }
 
-// No surah is gated any more, so a session is only parameterised by which of the
-// active learning surahs it works on. See src/utils/access.ts.
-import type { SessionAccess } from '@/utils/access';
-
 export interface QuranState {
   hydrated: boolean;
   onboardingCompleted: boolean;
@@ -183,6 +182,12 @@ export interface QuranState {
     snapshot: CloudSnapshot,
     syncedAt: string,
     cloudUserId: string,
+    /**
+     * `true` when this snapshot replaces the local state because the signed-in
+     * account changed. Queued sessions that belong to nobody or to the previous
+     * account are then dropped, so they can never be credited to `cloudUserId`.
+     */
+    identitySwitch?: boolean,
   ) => void;
   resetForCloudUser: (cloudUserId: string) => void;
   resetApp: () => void;
@@ -205,6 +210,47 @@ export function sessionHasWork(session: ActiveSession) {
     session.sabqiIndex > 0 ||
     session.verifyIndex > 0
   );
+}
+
+/**
+ * Brings a persisted payload from any prior version up to the current shape.
+ * Every field an older version lacked is backfilled and every collection is
+ * normalized, so a hydrate can never crash or silently drop a user's history —
+ * the highest-consequence path in the app, run on every update.
+ */
+export function migratePersistedState(
+  persistedState: unknown,
+  _version: number,
+  now = new Date(),
+): QuranState {
+  const state = (persistedState ?? {}) as Partial<QuranState>;
+  const migratedHistory = (state.history ?? []).map(normalizeSessionRecord);
+  const healed = healLearningState({
+    progress: state.progress ?? {},
+    profile: normalizeProfile(state.profile),
+  });
+  return {
+    ...state,
+    onboardingAccountPending: state.onboardingAccountPending ?? false,
+    profile: healed.profile,
+    progress: healed.progress,
+    stats: normalizeStats(state.stats, state.stats?.freezeAllowance ?? 1, now),
+    history: migratedHistory,
+    pendingSessions: state.pendingSessions ?? [],
+    // A session persisted before the loop existed has none of its fields.
+    activeSession: state.activeSession
+      ? {
+          ...state.activeSession,
+          kind: state.activeSession.kind ?? 'daily',
+          sabqiQueue: state.activeSession.sabqiQueue ?? [],
+          sabqiIndex: state.activeSession.sabqiIndex ?? 0,
+          verifyIndex: state.activeSession.verifyIndex ?? 0,
+          verifyFailed: state.activeSession.verifyFailed ?? [],
+          activeSeconds: state.activeSession.activeSeconds ?? 0,
+        }
+      : undefined,
+    syncMeta: state.syncMeta ?? defaultSyncMeta,
+  } as QuranState;
 }
 
 export const useQuranStore = create<QuranState>()(
@@ -818,6 +864,18 @@ export const useQuranStore = create<QuranState>()(
             elapsedSeconds,
           ),
         );
+
+        // Advancing the cursor is not the same as doing work. The sabqi and
+        // final-recitation "Passer" buttons move on with zero dwell, so a whole
+        // session of them clears sessionHasWork yet spent no time on the text.
+        // With no time actually spent, it earns nothing — no streak day, no XP,
+        // no minute, no sub-3-minute badge — the same as an empty session. A
+        // non-finite duration (a corrupt/absent startedAt makes it NaN, which is
+        // not `=== 0`) would otherwise slip through and poison totalMinutes.
+        if (!Number.isFinite(durationSeconds) || durationSeconds === 0) {
+          set({ activeSession: undefined, lastSummary: undefined });
+          return undefined;
+        }
         const completedAt = new Date();
         const isPerfect = isPerfectReviewSession(
           session.reviewQueue.length,
@@ -833,7 +891,14 @@ export const useQuranStore = create<QuranState>()(
         // (see startDailySession); whether this session counts toward the daily
         // streak/XP depends solely on whether that day's credit was already earned.
         const isBonus = existingToday;
-        const previous = sortedHistory(state.history).find((record) => record.date !== today);
+        // The streak baseline is the most recent day worked *before* this one.
+        // `!== today` was wrong: when this session is a stale one being flushed
+        // (its date is in the past) and newer records exist, the descending scan
+        // returned a *future* record, and a two-day gap the wrong way round
+        // collapsed a long streak to 1.
+        const previous = sortedHistory(state.history).find(
+          (record) => record.date < today,
+        );
         const freezeAllowance = session.freezeAllowance ?? state.stats.freezeAllowance ?? 1;
         const normalizedStats = normalizeStats(state.stats, freezeAllowance, completedAt);
         const streakResult = isBonus
@@ -913,6 +978,7 @@ export const useQuranStore = create<QuranState>()(
         // the app has to stay usable without a network.
         const pending: PendingSession = {
           id: session.startedAt,
+          userId: state.syncMeta.cloudUserId,
           date: today,
           startedAt: session.startedAt,
           completedAt: completedAt.toISOString(),
@@ -946,27 +1012,38 @@ export const useQuranStore = create<QuranState>()(
 
       clearActiveSession: () => set({ activeSession: undefined }),
 
-      applyCloudSnapshot: (snapshot, syncedAt, cloudUserId) => {
+      applyCloudSnapshot: (snapshot, syncedAt, cloudUserId, identitySwitch = false) => {
         // The snapshot can carry the stuck-at-100% state from a device that has
         // not been updated yet, so it is healed on the way in too.
         const healed = healLearningState({
           progress: snapshot.progress,
           profile: normalizeProfile(snapshot.profile),
         });
-        set({
+        set((state) => ({
           onboardingCompleted: snapshot.onboardingCompleted,
           onboardingAccountPending: false,
           profile: healed.profile,
           progress: healed.progress,
           stats: normalizeStats(snapshot.stats, snapshot.stats.freezeAllowance ?? 1),
           history: snapshot.history.map(normalizeSessionRecord),
+          // On an account switch, only sessions this account earned may remain;
+          // a same-account pull keeps the queue (including signed-out work) intact.
+          pendingSessions: identitySwitch
+            ? state.pendingSessions.filter((item) => item.userId === cloudUserId)
+            : state.pendingSessions,
+          // An in-progress session belongs to the previous account: drop it on a
+          // switch, or completing it would stamp its PendingSession with — and
+          // credit its work to — the new account (and it points at surahs the new
+          // account may not even have). A same-account pull leaves it running.
+          activeSession: identitySwitch ? undefined : state.activeSession,
+          lastSummary: identitySwitch ? undefined : state.lastSummary,
           syncMeta: {
             dirty: false,
             cloudUserId,
             lastLocalChangeAt: snapshot.updatedAt,
             lastSyncedAt: syncedAt,
           },
-        });
+        }));
       },
 
       resetForCloudUser: (cloudUserId) =>
@@ -1016,37 +1093,8 @@ export const useQuranStore = create<QuranState>()(
       // v9 adds `offlineAudioAuto`. It defaults to true — see normalizeProfile,
       // which is what the migration below runs the profile through.
       version: 10,
-      migrate: (persistedState, _version) => {
-        const state = persistedState as Partial<QuranState>;
-        const now = new Date();
-        const migratedHistory = (state.history ?? []).map(normalizeSessionRecord);
-        const healed = healLearningState({
-          progress: state.progress ?? {},
-          profile: normalizeProfile(state.profile),
-        });
-        return {
-          ...state,
-          onboardingAccountPending: state.onboardingAccountPending ?? false,
-          profile: healed.profile,
-          progress: healed.progress,
-          stats: normalizeStats(state.stats, state.stats?.freezeAllowance ?? 1, now),
-          history: migratedHistory,
-          pendingSessions: state.pendingSessions ?? [],
-          // A session persisted before the loop existed has none of its fields.
-          activeSession: state.activeSession
-            ? {
-                ...state.activeSession,
-                kind: state.activeSession.kind ?? 'daily',
-                sabqiQueue: state.activeSession.sabqiQueue ?? [],
-                sabqiIndex: state.activeSession.sabqiIndex ?? 0,
-                verifyIndex: state.activeSession.verifyIndex ?? 0,
-                verifyFailed: state.activeSession.verifyFailed ?? [],
-                activeSeconds: state.activeSession.activeSeconds ?? 0,
-              }
-            : undefined,
-          syncMeta: state.syncMeta ?? defaultSyncMeta,
-        };
-      },
+      migrate: (persistedState, version) =>
+        migratePersistedState(persistedState, version),
       partialize: ({ hydrated: _hydrated, ...state }) => state,
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true);
