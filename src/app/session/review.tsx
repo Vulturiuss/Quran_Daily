@@ -14,6 +14,7 @@ import {
 
 import { AppScreen } from '@/components/AppScreen';
 import { ArabicText } from '@/components/ArabicText';
+import { RecitationText } from '@/components/RecitationText';
 import { VerseAudioButton } from '@/components/VerseAudioButton';
 import { Card, IconButton, Pill, PrimaryButton, ProgressBar } from '@/components/ui';
 import { getSurah } from '@/data/surahs';
@@ -44,9 +45,7 @@ const ReviewVerseLine = memo(function ReviewVerseLine({
   return (
     <View style={styles.verseLine}>
       <View style={styles.verseCopy}>
-        <ArabicText size={27} style={styles.verseArabic}>
-          {verse.textArabic}
-        </ArabicText>
+        <RecitationText size={27} style={styles.verseArabic} verse={verse} />
         {showTranslation ? <Text style={styles.translation}>{verse.textFr}</Text> : null}
         {showTransliteration ? (
           <Text style={styles.transliteration}>{verse.textTranslit}</Text>

@@ -19,6 +19,8 @@ import { Platform } from 'react-native';
 import { getVerseAudioUrl } from '@/services/quranApi';
 import { Verse } from '@/types';
 
+type AudioPlayerInstance = ReturnType<typeof useAudioPlayer>;
+
 interface AudioContextValue {
   completedRepeatTrackId?: string;
   currentTrackId?: string;
@@ -26,6 +28,13 @@ interface AudioContextValue {
   isBuffering: boolean;
   isPlaying: boolean;
   loadingTrackId?: string;
+  /**
+   * The shared player. Exposed so the word-highlight can subscribe to its
+   * position on its own — reading `currentTime` into this context value would
+   * rebuild it every 200 ms and re-render every verse button (see the statusRef
+   * note below), which is exactly what that indirection avoids.
+   */
+  player: AudioPlayerInstance;
   repeatRemaining: number;
   playVerse: (verse: Verse, reciterId: string, repeatCount?: number) => Promise<void>;
   stop: () => Promise<void>;
@@ -178,6 +187,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       isBuffering: status.isBuffering,
       isPlaying: status.playing,
       loadingTrackId,
+      player,
       repeatRemaining,
       playVerse,
       stop,
@@ -187,6 +197,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       currentTrackId,
       error,
       loadingTrackId,
+      player,
       playVerse,
       repeatRemaining,
       status.isBuffering,

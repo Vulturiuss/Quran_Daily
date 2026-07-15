@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Eye, EyeOff } from 'lucide-react-native';
 
-import { ArabicText } from '@/components/ArabicText';
 import { Card } from '@/components/ui';
+import { RecitationText } from '@/components/RecitationText';
 import { VerseAudioButton } from '@/components/VerseAudioButton';
 import { useTheme } from '@/providers/ThemeProvider';
 import { Palette, radius, spacing, typography } from '@/theme';
@@ -71,9 +71,10 @@ export function VerseCard({
         </View>
       ) : (
         <>
-          <ArabicText style={[styles.arabic, paper && styles.paperText]}>
-            {verse.textArabic}
-          </ArabicText>
+          <RecitationText
+            style={[styles.arabic, paper && styles.paperText]}
+            verse={verse}
+          />
           <View style={[styles.divider, paper && styles.paperDivider]} />
           <Text style={[styles.translation, paper && styles.paperText]}>
             {verse.textFr}
