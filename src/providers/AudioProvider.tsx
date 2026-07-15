@@ -13,6 +13,7 @@ import {
   useAudioPlayer,
   useAudioPlayerStatus,
 } from 'expo-audio';
+import { usePathname } from 'expo-router';
 import { Platform } from 'react-native';
 
 import { getVerseAudioUrl } from '@/services/quranApi';
@@ -46,6 +47,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const repeatTarget = useRef(0);
   const [repeatRemaining, setRepeatRemaining] = useState(0);
   const finishHandled = useRef(false);
+  // Bumped on every play/stop. A verse's audio URL is fetched asynchronously, so
+  // tapping verse B while A is still resolving would otherwise let A's late
+  // response win `player.replace` and drive the wrong button's state.
+  const playRequestId = useRef(0);
   // `status` ticks every 200 ms while playing. Reading it through a ref keeps
   // playVerse/stop stable, so the context value below does not have to be
   // rebuilt 5x/s — which used to re-render every consumer, including the
@@ -75,7 +80,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       if (repeatRemainingRef.current > 1) {
         repeatRemainingRef.current -= 1;
         setRepeatRemaining(repeatRemainingRef.current);
-        void player.seekTo(0).then(() => player.play());
+        void player
+          .seekTo(0)
+          .then(() => player.play())
+          .catch(() => setError('La lecture en boucle a été interrompue.'));
       } else {
         repeatRemainingRef.current = 0;
         setRepeatRemaining(0);
@@ -92,6 +100,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     async (verse: Verse, reciterId: string, repeatCount = 1) => {
       const trackId = `${reciterId}:${verse.verseKey}`;
       const current = statusRef.current;
+      const requestId = (playRequestId.current += 1);
       setError(undefined);
       setCompletedRepeatTrackId(undefined);
 
@@ -121,6 +130,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       setLoadingTrackId(trackId);
       try {
         const audioUrl = await getVerseAudioUrl(verse, reciterId);
+        // A newer play or a stop happened while the URL was resolving: this
+        // request is stale, so it must not seize the player.
+        if (playRequestId.current !== requestId) return;
         if (!audioUrl) throw new Error('Audio indisponible pour ce verset.');
 
         player.replace(audioUrl);
@@ -131,20 +143,32 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         setCurrentTrackId(trackId);
         player.play();
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : 'Impossible de charger l’audio.');
+        if (playRequestId.current === requestId) {
+          setError(caught instanceof Error ? caught.message : 'Impossible de charger l’audio.');
+        }
       } finally {
-        setLoadingTrackId(undefined);
+        if (playRequestId.current === requestId) setLoadingTrackId(undefined);
       }
     },
     [currentTrackId, player],
   );
 
   const stop = useCallback(async () => {
+    // Invalidate any in-flight load so it cannot start playing after we stop.
+    playRequestId.current += 1;
     player.pause();
     repeatRemainingRef.current = 0;
     setRepeatRemaining(0);
     if (statusRef.current.currentTime > 0) await player.seekTo(0);
   }, [player]);
+
+  // The player lives at the root, so it outlives every screen. Stop it whenever
+  // the route changes, or a recitation started on one screen would keep playing
+  // over the next with no visible control to silence it.
+  const pathname = usePathname();
+  useEffect(() => {
+    void stop();
+  }, [pathname, stop]);
 
   const value = useMemo<AudioContextValue>(
     () => ({

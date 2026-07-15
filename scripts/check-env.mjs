@@ -47,6 +47,21 @@ const missing = REQUIRED.filter((name) => !process.env[name]?.trim());
 const hasBillingKey = BILLING_KEYS.some((name) => process.env[name]?.trim());
 if (!hasBillingKey) missing.push(`one of ${BILLING_KEYS.join(' / ')}`);
 
+// src/services/subscription.ts resolves the key as `testKey || platformKey`, so
+// a stray Test Store key WINS over the real platform key — every install would
+// then talk to the sandbox and grant entitlements without a real charge. A
+// store build must never carry it, whatever else is set.
+if (process.env.EXPO_PUBLIC_REVENUECAT_TEST_KEY?.trim()) {
+  console.error(
+    `\ncheck-env: refusing to build profile "${PROFILE}" — ` +
+      'EXPO_PUBLIC_REVENUECAT_TEST_KEY is set.\n' +
+      'It takes precedence over the platform key, so the app would ship against\n' +
+      'the RevenueCat Test Store and hand out Premium for free. Remove it with:\n' +
+      '  eas env:delete --environment production EXPO_PUBLIC_REVENUECAT_TEST_KEY\n',
+  );
+  process.exit(1);
+}
+
 if (missing.length > 0) {
   console.error(
     `\ncheck-env: refusing to build profile "${PROFILE}" — missing variables:\n` +

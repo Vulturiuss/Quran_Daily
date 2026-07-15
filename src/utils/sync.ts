@@ -60,11 +60,16 @@ function mergeHistory(local: SessionRecord[], remote: SessionRecord[]) {
 }
 
 function mergeStats(
-  local: UserStats,
-  remote: UserStats,
+  localRaw: UserStats,
+  remoteRaw: UserStats,
   history: SessionRecord[],
   localIsNewer: boolean,
 ): UserStats {
+  // Normalize both sides first: a snapshot with a missing/undefined counter would
+  // otherwise poison `Math.max(n, undefined, …)` into NaN, which serializes to
+  // null and sticks (the defaults spread does not repair an explicit null).
+  const local = normalizeStats(localRaw);
+  const remote = normalizeStats(remoteRaw);
   const historyXP = history.reduce((sum, record) => sum + record.xpEarned, 0);
   const historyMinutes = history.reduce(
     (sum, record) =>
@@ -125,6 +130,43 @@ export function createCloudSnapshot(
   };
 }
 
+/**
+ * Whether a surah's progress carries work that onboarding never writes. Onboarding
+ * only ever produces `reviewCount: 0`, no `learnedAt`, no `weakVerses`, no
+ * `lastReviewedAt`, and status `known`/`learning`. Any of those set means the user
+ * actually reviewed, learnt, or recited — real progress that must not be treated
+ * as a throwaway onboarding default.
+ */
+function hasEarnedProgress(progress: CloudSnapshot['progress']): boolean {
+  return Object.values(progress ?? {}).some(
+    (item) =>
+      (item.reviewCount ?? 0) > 0 ||
+      Boolean(item.lastReviewedAt) ||
+      item.status === 'verifying' ||
+      (item.weakVerses?.length ?? 0) > 0 ||
+      Object.keys(item.learnedAt ?? {}).length > 0,
+  );
+}
+
+/**
+ * A snapshot that has completed onboarding but holds only onboarding defaults: no
+ * session, no history, no earned progress. Onboarding runs *before* the first
+ * sign-in, so after a reinstall the fresh local snapshot looks exactly like this
+ * — and its `updatedAt` is `now`, which would beat every real remote timestamp
+ * under the field-level last-write-wins merge and silently wipe the only backup.
+ * (A surah merely marked "known" from the library between onboarding and first
+ * sign-in is indistinguishable from an onboarding default and is not caught here;
+ * that is a one-tap action to redo, unlike months of review schedule.)
+ */
+function isPristineOnboarding(snapshot: CloudSnapshot): boolean {
+  return (
+    Boolean(snapshot.onboardingCompleted) &&
+    (snapshot.stats?.totalSessions ?? 0) === 0 &&
+    (snapshot.history?.length ?? 0) === 0 &&
+    !hasEarnedProgress(snapshot.progress)
+  );
+}
+
 export function mergeCloudSnapshots(
   local: CloudSnapshot,
   remote: CloudSnapshot,
@@ -134,6 +176,17 @@ export function mergeCloudSnapshots(
     return { ...remote, updatedAt };
   }
   if (!remote.onboardingCompleted && local.onboardingCompleted) {
+    return { ...local, updatedAt };
+  }
+
+  // One side is untouched onboarding and the other carries real work: keep the
+  // real one wholesale rather than letting `now`-stamped defaults win the merge.
+  const localPristine = isPristineOnboarding(local);
+  const remotePristine = isPristineOnboarding(remote);
+  if (localPristine && !remotePristine) {
+    return { ...remote, updatedAt };
+  }
+  if (remotePristine && !localPristine) {
     return { ...local, updatedAt };
   }
 

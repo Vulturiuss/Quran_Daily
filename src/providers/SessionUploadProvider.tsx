@@ -23,7 +23,15 @@ export function SessionUploadProvider({ children }: { children: ReactNode }) {
     if (draining.current) return;
     if (!session || !online || !hydrated) return;
 
-    const queue = useQuranStore.getState().pendingSessions;
+    const currentUserId = session.user.id;
+    // Only send what this account earned, or what was worked signed-out (which
+    // merges into this account on first sign-in). A previous account's queued
+    // session must never be posted with this account's JWT.
+    const queue = useQuranStore
+      .getState()
+      .pendingSessions.filter(
+        (pending) => pending.userId == null || pending.userId === currentUserId,
+      );
     if (queue.length === 0) return;
 
     draining.current = true;

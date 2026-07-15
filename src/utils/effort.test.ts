@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -7,6 +8,7 @@ import {
   MAX_ITEM_SECONDS,
   minReviewSeconds,
   minVerseSeconds,
+  SERVER_MIN_SECONDS_PER_ITEM,
 } from './effort';
 
 test('a longer verse is held back longer than a short one', () => {
@@ -122,5 +124,41 @@ test('the server rejects a session claiming more time than its items can hold', 
     isPlausibleSession({ activeSeconds: 7200, versesLearned: 1, surahsReviewed: 0 }),
     false,
     'two hours on a single verse is not work, it is a forged payload',
+  );
+});
+
+// The real anti-cheat gate runs in PL/pgSQL (record_daily_session); this TS
+// mirror has no production caller. The two floors are coupled only by a comment,
+// so pin the per-item floor in schema.sql to the constant here — if either side
+// moves without the other, this fails instead of silently drifting apart.
+test('the server per-item time floor mirrors SERVER_MIN_SECONDS_PER_ITEM', () => {
+  const schema = readFileSync(
+    new URL('../../supabase/schema.sql', import.meta.url),
+    'utf8',
+  );
+  const match = schema.match(
+    /session_time_floor[\s\S]*?session_items\([^)]*\)\s*\*\s*(\d+)/,
+  );
+  assert.ok(match, 'session_time_floor multiplies session_items by a literal');
+  assert.equal(
+    Number(match![1]),
+    SERVER_MIN_SECONDS_PER_ITEM,
+    'schema.sql and effort.ts disagree on the per-item floor',
+  );
+
+  // The per-item ceiling in the SQL gate must match MAX_ITEM_SECONDS.
+  const ceiling = schema.match(/p_active_seconds\s*>\s*(\d+)\s*\*\s*item_count/);
+  assert.ok(ceiling, 'the SQL enforces a per-item ceiling');
+  assert.equal(
+    Number(ceiling![1]),
+    MAX_ITEM_SECONDS,
+    'schema.sql and effort.ts disagree on the per-item ceiling',
+  );
+
+  // And the absolute hourly cap (MAX_SESSION_SECONDS in the store) is present.
+  assert.match(
+    schema,
+    /p_active_seconds\s*>\s*3600/,
+    'the SQL keeps the 3600s absolute session cap',
   );
 });

@@ -165,6 +165,13 @@ export interface ActiveSession {
  */
 export interface PendingSession {
   id: string;
+  /**
+   * The cloud account that earned this session, or `undefined` if it was worked
+   * signed-out. The queue is sent with whatever JWT is current, so without this
+   * one account's offline session could be credited to the next person who signs
+   * in on the same device — the exact record a parent's dashboard trusts.
+   */
+  userId?: string;
   date: string;
   startedAt: string;
   completedAt: string;

@@ -99,13 +99,18 @@ Deno.serve(async (request) => {
   const { data: profiles, error: profileError } = await admin
     .from('profiles')
     .select('id')
-    .in('id', userIds)
-    .limit(1);
+    .in('id', userIds);
   if (profileError) {
     return new Response(profileError.message, { status: 500 });
   }
 
-  const userId = profiles?.[0]?.id as string | undefined;
+  // Apply the tier to a deterministic account, not whichever row Postgres
+  // happened to return first. `userIds` is in priority order (app_user_id, then
+  // original_app_user_id, then aliases/transfers), so pick the first of those
+  // that maps to a real profile. An arbitrary `.limit(1)` could land a purchase
+  // on the wrong account whenever an event carried more than one UUID.
+  const existingIds = new Set((profiles ?? []).map((row) => row.id as string));
+  const userId = userIds.find((id) => existingIds.has(id));
   if (!userId) {
     return Response.json({ received: true, updated: false });
   }

@@ -8,9 +8,13 @@ points demandent des identifiants ou des ressources que le dépôt ne peut pas c
 `.env` est gitignored : un build EAS ne le voit pas. Sans ces variables, l'app se
 publie **entièrement déverrouillée** (pas de paywall, pas de compte, pas de sync).
 
-`scripts/check-env.mjs` fait maintenant **échouer** un build `production`/`preview`
-si elles manquent (via le hook `eas-build-pre-install`), donc l'erreur est bruyante
-au lieu d'être silencieuse. Enregistre-les une fois :
+`scripts/check-env.mjs` fait maintenant **échouer** un build `production` si elles
+manquent (via le hook `eas-build-pre-install`), donc l'erreur est bruyante au lieu
+d'être silencieuse. Le profil `preview` (APK de test) en est exempté : il ne passe
+pas la revue des stores et Supabase seul suffit à garder `configured === true`.
+Le script rejette aussi `EXPO_PUBLIC_REVENUECAT_TEST_KEY` en production (elle prime
+sur la clé de plateforme et brancherait l'app sur le Test Store). Enregistre-les
+une fois :
 
 ```bash
 eas env:create --environment production   # répéter pour chaque variable
@@ -49,7 +53,7 @@ L’app le lit en temps réel (abonnement Realtime dans `SubscriptionProvider`).
 
 Cela suppose que le build ait bien les variables Supabase — sans elles, `configured`
 vaut `false` et l’app est déverrouillée pour tout le monde. C’est ce que `check-env`
-empêche sur les profils `production` et `preview`.
+empêche sur le profil `production` (le `preview` en est exempté volontairement).
 
 ## 3. Appliquer le nouveau schéma Supabase
 

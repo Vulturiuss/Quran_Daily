@@ -58,6 +58,13 @@ interface SnapshotRow {
   updated_at: string;
 }
 
+// Auto-retry of a push that left the state dirty: exponential backoff (5s, 10s,
+// … capped at 5 min) and a hard attempt cap, so a permanently failing sync does
+// not drain battery and network forever. A network recovery re-arms separately.
+const BASE_SYNC_RETRY_DELAY = 5000;
+const MAX_SYNC_RETRY_DELAY = 5 * 60_000;
+const MAX_SYNC_RETRIES = 6;
+
 const CloudContext = createContext<CloudContextValue | null>(null);
 
 function authRedirectUrl() {
@@ -108,6 +115,9 @@ export function CloudProvider({ children }: { children: ReactNode }) {
   const activeUserId = useRef<string | undefined>(undefined);
   const deletingAccount = useRef(false);
   const pulledUserId = useRef<string | undefined>(undefined);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCount = useRef(0);
+  const [retryTick, setRetryTick] = useState(0);
   activeUserId.current = session?.user.id;
 
   useEffect(() => {
@@ -255,6 +265,7 @@ export function CloudProvider({ children }: { children: ReactNode }) {
             initialRemote,
             row?.updated_at ?? initialRemote.updatedAt,
             userId,
+            true,
           );
         if (!initialRemote.onboardingCompleted) {
           router.replace('/onboarding');
@@ -372,11 +383,50 @@ export function CloudProvider({ children }: { children: ReactNode }) {
           syncPromise.current = null;
           syncingUserId.current = undefined;
         }
+        // A round-trip that could not clear the dirty flag — a transient error,
+        // an exhausted optimistic-concurrency retry, or a local change that
+        // landed mid-flight — leaves nothing to re-trigger the scheduler, since
+        // `dirty` was already true and its value did not change. Re-arm a retry
+        // here, or the change would be stranded locally until the app restarts.
+        const stillDirty = useQuranStore.getState().syncMeta.dirty;
+        if (!stillDirty) {
+          retryCount.current = 0;
+        } else if (
+          online &&
+          !deletingAccount.current &&
+          activeUserId.current === userId &&
+          retryCount.current < MAX_SYNC_RETRIES
+        ) {
+          // Exponential backoff with a ceiling and a cap on attempts: a permanent
+          // failure (a snapshot that outgrew the 1 MB row, an RLS denial) must not
+          // spin a retry every few seconds forever. A network recovery re-arms via
+          // the `online` transition in the scheduler effect, and resets the count
+          // once a sync finally clears `dirty`.
+          const delay = Math.min(
+            MAX_SYNC_RETRY_DELAY,
+            BASE_SYNC_RETRY_DELAY * 2 ** retryCount.current,
+          );
+          retryCount.current += 1;
+          if (retryTimer.current) clearTimeout(retryTimer.current);
+          retryTimer.current = setTimeout(() => {
+            retryTimer.current = null;
+            // Nudge the scheduler rather than re-entering directly: `dirty` is
+            // still true so its edge won't fire on its own.
+            setRetryTick((tick) => tick + 1);
+          }, delay);
+        }
       });
     syncPromise.current = operation;
     syncingUserId.current = userId;
     return operation;
   }, [online, runSync, session?.user.id]);
+
+  useEffect(
+    () => () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!session || !hydrated || !online) return;
@@ -392,7 +442,7 @@ export function CloudProvider({ children }: { children: ReactNode }) {
       void syncNow();
     }, needsInitialPull ? 150 : 1200);
     return () => clearTimeout(timer);
-  }, [dirty, hydrated, online, session, syncNow]);
+  }, [dirty, hydrated, online, retryTick, session, syncNow]);
 
   const signIn = useCallback(
     async (email: string, password: string): Promise<AuthResult> => {

@@ -75,3 +75,27 @@ test('a due surah is scheduled normally', () => {
   const next = scheduleAfterReview(base, 'good', now);
   assert.equal(next.reviewIntervalDays, 10);
 });
+
+test('a review is due any time on its scheduled day, not only after its clock hour', () => {
+  const progress: UserSurahProgress = { ...base, nextReviewAt: '2026-06-15T20:05:00' };
+  // Same day, earlier hour than the one addDays preserved: still due.
+  assert.equal(isDue(progress, new Date('2026-06-15T08:00:00')), true);
+  // The evening before: not yet due.
+  assert.equal(isDue(progress, new Date('2026-06-14T23:00:00')), false);
+});
+
+test('the first good review of an onboarding-scheduled surah grows its interval, not collapses it', () => {
+  const onboardingKnown: UserSurahProgress = {
+    ...base,
+    reviewIntervalDays: 14,
+    reviewCount: 0,
+  };
+  const next = calculateNextReview(onboardingKnown, 'good', new Date('2026-06-14T10:00:00Z'));
+  assert.equal(next.reviewIntervalDays, 35, '14 * 2.5, not a hard-set 2');
+});
+
+test('the first good review of a freshly-learnt surah still graduates to 2 days', () => {
+  const fresh: UserSurahProgress = { ...base, reviewIntervalDays: 1, reviewCount: 0 };
+  const next = calculateNextReview(fresh, 'good', new Date('2026-06-14T10:00:00Z'));
+  assert.equal(next.reviewIntervalDays, 2);
+});

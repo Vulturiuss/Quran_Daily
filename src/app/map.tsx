@@ -1,4 +1,4 @@
-import { forwardRef, memo, useMemo, useRef, useState } from 'react';
+import { forwardRef, memo, useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -191,18 +191,33 @@ export default function MapScreen() {
   const shareCardRef = useRef<View>(null);
   const [sharing, setSharing] = useState(false);
 
+  // Stable identity, so the memo on all 114 cells actually holds: an inline
+  // arrow here made a new function every render and re-rendered the whole grid.
+  const openSurah = useCallback((number: number) => {
+    router.push(`/surah/${number}`);
+  }, []);
+
   async function shareMap() {
     const message = `Ma carte du Coran · ${map.versesLearned} versets mémorisés sur ${map.totalVerses}, ${map.surahsKnown} sourates connues.`;
 
-    if (Platform.OS === 'web' || !shareCardRef.current) {
+    if (Platform.OS === 'web') {
       await Share.share({ message });
       return;
     }
 
+    // Mount the off-screen capture card (it stays unmounted the rest of the time
+    // — 114 extra cells were being kept alive on every visit just in case).
     setSharing(true);
     try {
       const available = await Sharing.isAvailableAsync();
       if (!available) {
+        await Share.share({ message });
+        return;
+      }
+
+      // Let the just-mounted card lay out before capturing it.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (!shareCardRef.current) {
         await Share.share({ message });
         return;
       }
@@ -273,7 +288,7 @@ export default function MapScreen() {
             <SurahCellView
               cell={cell}
               key={cell.number}
-              onPress={(number) => router.push(`/surah/${number}`)}
+              onPress={openSurah}
               size={40}
             />
           ))}
@@ -297,9 +312,11 @@ export default function MapScreen() {
         </View>
       </Card>
 
-      <View pointerEvents="none" style={styles.shareCapture}>
-        <MapShareCard map={map} ref={shareCardRef} />
-      </View>
+      {sharing ? (
+        <View pointerEvents="none" style={styles.shareCapture}>
+          <MapShareCard map={map} ref={shareCardRef} />
+        </View>
+      ) : null}
 
       <View style={styles.actions}>
         <PrimaryButton
