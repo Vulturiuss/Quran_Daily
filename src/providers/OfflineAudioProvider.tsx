@@ -16,6 +16,7 @@ import {
   downloadedBytes,
   downloadedSurahs,
   downloadSurah,
+  ensureSurahSegments,
   isOfflineAudioSupported,
   isSurahDownloaded,
   pruneOtherReciters,
@@ -103,25 +104,33 @@ export function OfflineAudioProvider({ children }: { children: ReactNode }) {
       }
 
       const task = queue.current.then(async () => {
-        if (isSurahDownloaded(reciter, surahNumber)) return { ok: true };
+        let result: { ok: boolean; reason?: string } = { ok: true };
 
-        if (mounted.current) {
-          setActiveSurah(surahNumber);
-          setActiveProgress(0);
+        if (!isSurahDownloaded(reciter, surahNumber)) {
+          if (mounted.current) {
+            setActiveSurah(surahNumber);
+            setActiveProgress(0);
+          }
+          result = await downloadSurah(
+            reciter,
+            surahNumber,
+            (value) => {
+              if (mounted.current) setActiveProgress(value);
+            },
+            () => !mounted.current,
+          );
+          if (mounted.current) {
+            setActiveSurah(undefined);
+            setActiveProgress(0);
+            refresh();
+          }
         }
-        const result = await downloadSurah(
-          reciter,
-          surahNumber,
-          (value) => {
-            if (mounted.current) setActiveProgress(value);
-          },
-          () => !mounted.current,
-        );
-        if (mounted.current) {
-          setActiveSurah(undefined);
-          setActiveProgress(0);
-          refresh();
-        }
+
+        // With the audio in place, save its word-timings too so the karaoke
+        // highlight works offline. Idempotent and best-effort: it returns at once
+        // once the file exists, and never blocks or fails the audio download.
+        if (result.ok) await ensureSurahSegments(reciter, surahNumber);
+
         return result;
       });
 

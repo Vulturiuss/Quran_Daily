@@ -5,6 +5,8 @@ import { getVerses } from '@/data/verses';
 // The *remote* resolver on purpose: getVerseAudioUrl prefers a local file, which
 // is exactly what we are creating here.
 import { getRemoteVerseAudioUrl, ReciterId } from '@/services/quranApi';
+import { fetchRemoteSurahSegments } from '@/services/verseSegments';
+import { WordTiming } from '@/utils/recitation';
 
 /**
  * Offline recitation.
@@ -47,6 +49,56 @@ function verseFile(reciterId: string, surahNumber: number, verseNumber: number) 
     reciterDirectory(reciterId),
     `${surahNumber}_${verseNumber}.mp3`,
   );
+}
+
+function surahSegmentsFile(reciterId: string, surahNumber: number) {
+  return new File(reciterDirectory(reciterId), `${surahNumber}.segments.json`);
+}
+
+/**
+ * The word-timings saved next to a downloaded surah's audio, keyed by verse key —
+ * what lets the karaoke highlight work with no network. Undefined when none were
+ * saved (older download, unsupported reciter, or a fetch that failed at download
+ * time); the highlight then falls back to streaming its timings when online.
+ */
+export function localSurahSegments(
+  reciterId: string,
+  surahNumber: number,
+): Record<string, WordTiming[]> | undefined {
+  if (!isOfflineAudioSupported) return undefined;
+  try {
+    const file = surahSegmentsFile(reciterId, surahNumber);
+    if (!file.exists) return undefined;
+    const parsed = JSON.parse(file.textSync()) as Record<string, WordTiming[]>;
+    return parsed && typeof parsed === 'object' ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Fetches and saves a surah's word-timings beside its audio, once.
+ *
+ * Best-effort by design: the highlight is a bonus on top of offline audio, so a
+ * failure here leaves the audio untouched. Idempotent — it returns at once when
+ * the file already exists, which is why it is safe to call after every download,
+ * including for surahs whose audio was already on disk.
+ */
+export async function ensureSurahSegments(
+  reciterId: string,
+  surahNumber: number,
+): Promise<void> {
+  if (!isOfflineAudioSupported) return;
+  const file = surahSegmentsFile(reciterId, surahNumber);
+  if (file.exists) return;
+  try {
+    const segments = await fetchRemoteSurahSegments(surahNumber, reciterId);
+    if (Object.keys(segments).length > 0) {
+      file.write(JSON.stringify(segments));
+    }
+  } catch {
+    // Optional data: never surface or block on a failure.
+  }
 }
 
 /** The local file for a verse, if it has been downloaded. */
@@ -156,6 +208,12 @@ export function deleteSurah(reciterId: string, surahNumber: number) {
     } catch {
       // Already gone: nothing to do.
     }
+  }
+  try {
+    const segments = surahSegmentsFile(reciterId, surahNumber);
+    if (segments.exists) segments.delete();
+  } catch {
+    // Already gone: nothing to do.
   }
 }
 

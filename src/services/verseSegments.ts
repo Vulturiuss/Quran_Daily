@@ -1,12 +1,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { getVerses } from '@/data/verses';
+import { localSurahSegments } from '@/services/offlineAudio';
 import { ReciterId, reciters } from '@/services/quranApi';
 import { Verse } from '@/types';
-import { parseSegments, WordTiming } from '@/utils/recitation';
+import {
+  parseSegments,
+  segmentsFitWords,
+  splitArabicWords,
+  WordTiming,
+} from '@/utils/recitation';
 
 /**
- * Per-word recitation timings, fetched from Quran.com and cached like the audio
- * URLs are.
+ * Per-word recitation timings, resolved local-file-first then network, and cached
+ * like the audio URLs are.
  *
  * The word-highlight follows these; the audio plays with or without them, so this
  * layer is silent on every failure — an unsupported reciter, no network, a
@@ -55,6 +62,32 @@ async function fetchRemoteVerseSegments(
   }
 }
 
+/**
+ * Every verse of a surah whose timings line up exactly with the displayed words,
+ * for the offline downloader to save beside the audio. Verses that would never be
+ * highlighted anyway (a drifting word count on a long verse) are dropped here, so
+ * the saved file stays small and holds only what the UI can actually use.
+ */
+export async function fetchRemoteSurahSegments(
+  surahNumber: number,
+  reciterId: string,
+): Promise<Record<string, WordTiming[]>> {
+  const numericId = reciterNumericId(reciterId);
+  if (numericId === undefined) return {};
+
+  const result: Record<string, WordTiming[]> = {};
+  for (const verse of getVerses(surahNumber)) {
+    const timings = await fetchRemoteVerseSegments(verse.verseKey, numericId);
+    if (
+      timings &&
+      segmentsFitWords(timings, splitArabicWords(verse.textArabic).length)
+    ) {
+      result[verse.verseKey] = timings;
+    }
+  }
+  return result;
+}
+
 export async function getVerseSegments(
   verse: Verse,
   reciterId: string,
@@ -66,6 +99,16 @@ export async function getVerseSegments(
 
   const memoryValue = memoryCache.get(key);
   if (memoryValue) return memoryValue;
+
+  // Saved next to the audio when the surah was downloaded: this is what makes the
+  // highlight work with no network at all.
+  const offline = localSurahSegments(reciterId, verse.surahNumber)?.[
+    verse.verseKey
+  ];
+  if (offline && offline.length > 0) {
+    memoryCache.set(key, offline);
+    return offline;
+  }
 
   const stored = await AsyncStorage.getItem(key).catch(() => null);
   if (stored) {
