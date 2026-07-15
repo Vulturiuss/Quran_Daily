@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { StyleProp, StyleSheet, Text, TextStyle } from 'react-native';
 import { useAudioPlayerStatus } from 'expo-audio';
 
+import { useRecitationCheck } from '@/components/recitationCheck';
 import { useQuranAudio } from '@/providers/AudioProvider';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { useTheme } from '@/providers/ThemeProvider';
@@ -17,6 +18,7 @@ import {
   splitArabicWords,
   WordTiming,
 } from '@/utils/recitation';
+import { CheckedWord, SpokenVerdict } from '@/utils/recitationReview';
 import { Palette, typography } from '@/theme';
 import { Verse } from '@/types';
 
@@ -63,6 +65,11 @@ export function RecitationText({
         preferredReciter,
       );
 
+  // A spoken-recitation check, when one exists for this verse, wins over the
+  // playback highlight: it is the user's own voice being scored, not the audio.
+  const { wordsForVerse } = useRecitationCheck();
+  const checkedWords = wordsForVerse(verse.verseNumber);
+
   const { currentTrackId } = useQuranAudio();
   const isCurrent = currentTrackId === `${reciterId}:${verse.verseKey}`;
 
@@ -85,6 +92,10 @@ export function RecitationText({
     { fontSize: size, lineHeight: size * 1.85 },
     style,
   ];
+
+  if (checkedWords && checkedWords.length === words.length) {
+    return <CheckedWordsText colors={colors} textStyle={textStyle} words={checkedWords} />;
+  }
 
   const canHighlight =
     isCurrent && timings !== undefined && segmentsFitWords(timings, words.length);
@@ -139,6 +150,48 @@ function ActiveRecitationText({
       words={words}
     />
   );
+}
+
+/**
+ * Renders the verse with each word coloured by how it was recited: green when it
+ * matched, red when it was said wrong or skipped, and the plain text colour for
+ * words the reciter never reached — a partial recitation must not look like a wall
+ * of mistakes.
+ */
+function CheckedWordsText({
+  words,
+  textStyle,
+  colors,
+}: {
+  words: CheckedWord[];
+  textStyle: StyleProp<TextStyle>;
+  colors: Palette;
+}) {
+  return (
+    <Text style={textStyle}>
+      {words.map((word, index) => (
+        <Text key={index} style={verdictStyle(word.verdict, colors)}>
+          {word.text}
+          {index < words.length - 1 ? ' ' : ''}
+        </Text>
+      ))}
+    </Text>
+  );
+}
+
+function verdictStyle(verdict: SpokenVerdict, colors: Palette): TextStyle | undefined {
+  switch (verdict) {
+    case 'correct':
+      return { color: colors.success };
+    case 'substituted':
+      return { color: colors.error };
+    case 'missing':
+      // Skipped rather than mis-said: still wrong, but underlined so the two read
+      // differently at a glance.
+      return { color: colors.error, textDecorationLine: 'underline' };
+    default:
+      return undefined;
+  }
 }
 
 function WordsText({
